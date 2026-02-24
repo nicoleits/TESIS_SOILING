@@ -4,14 +4,30 @@ Este documento describe con detalle el flujo completo implementado para la desca
 
 ---
 
+## Estructura y rutas del proyecto
+
+- **Raíz del proyecto:** la carpeta **`TESIS_SOILING/`**. Todas las rutas que aparecen en este documento (`data/`, `analysis/`, etc.) son **relativas a TESIS_SOILING**.
+- **Datos:** se guardan en **`TESIS_SOILING/data/`** (soilingkit, solys2, iv600, etc.). Estos archivos (CSV, PNG) **no se suben a git** (`.gitignore` en el repositorio).
+- **Análisis SR:** salidas en **`TESIS_SOILING/analysis/sr/`** (`soilingkit_sr.csv`, `grafico_sr.png`).
+
+---
+
 ## Requisitos previos
 
-- **Entorno:** Python 3 con dependencias instaladas (`pip install -r requirements.txt`).
+- **Entorno:** Python 3 con dependencias instaladas (`pip install -r requirements.txt` desde `TESIS_SOILING/`).
 - **Dependencias principales:** `pandas`, `numpy`, `clickhouse-connect`, `matplotlib`, `plotly`, **`pvlib`** (necesario para POA y modelo clear-sky).
 - **Conexión:** Acceso a la base de datos ClickHouse configurada en el script (host, puerto, usuario, contraseña).
-- **Ejecución:** Desde la raíz del proyecto, `python download_data.py` (o ` .venv/bin/python download_data.py` si se usa entorno virtual).
 
-Todos los archivos de salida se escriben en el directorio **`data/`** (relativo al directorio del script), organizados en subcarpetas por tipo de dato.
+**Ejecución del script de descarga:**
+
+- Desde la carpeta **TESIS_SOILING:**  
+  `python download_data.py`  
+  (o `../.venv/bin/python download_data.py` si el venv está en la carpeta padre).
+- Desde la carpeta padre del repositorio (p. ej. `si_test`):  
+  `python TESIS_SOILING/download_data.py`  
+  (con el venv activado o usando la ruta al intérprete que tenga las dependencias).
+
+En ambos casos los archivos de salida se escriben en **`TESIS_SOILING/data/`**, organizados en subcarpetas por tipo de dato.
 
 ---
 
@@ -33,7 +49,7 @@ La conexión a ClickHouse usa la configuración definida en el script:
 
 ## 1.2 Opciones de descarga (menú)
 
-| Opción | Descripción | Tabla / Origen | Archivo de salida (en `data/`) |
+| Opción | Descripción | Tabla / Origen | Archivo de salida (en `TESIS_SOILING/data/`) |
 |--------|-------------|----------------|---------------------------------|
 | 1 | IV600 (puntos característicos) | ClickHouse | `iv600/raw_iv600_data.csv` |
 | 2 | Curvas IV600 completas | ClickHouse (rango horario configurable) | `iv600/raw_iv600_curves.csv` |
@@ -72,33 +88,37 @@ La conexión a ClickHouse usa la configuración definida en el script:
   - **Isc(p):** Corriente de cortocircuito celda protegida/limpia (A).
   - **Te(C):** Temperatura celda expuesta (°C).
   - **Tp(C):** Temperatura celda protegida (°C).
-- **Salida:** `data/soilingkit/soilingkit_raw_data.csv`.
+- **Salida:** `data/soilingkit/soilingkit_raw_data.csv` (ruta completa: `TESIS_SOILING/data/soilingkit/...`).
 - **Importante:** Este archivo es la entrada para el **filtrado por irradiancia** (opción 12); el resultado se guarda en `soilingkit_poa_500_clear_sky.csv`.
 
 ## 1.4 Estructura de directorios de salida
 
+Todas las rutas son relativas a **TESIS_SOILING/** (raíz del proyecto).
+
 ```
-data/
-├── iv600/
-├── pv_glasses/
-├── dustiq/
-├── soilingkit/           # Soiling Kit (Data): raw, filtrado, sesión mediodía solar
-│   ├── soilingkit_raw_data.csv
-│   ├── soilingkit_poa_500_clear_sky.csv   # opción 12
-│   ├── soilingkit_solar_noon.csv          # opción 13 (entrada para Análisis SR)
-│   └── soilingkit_solar_noon_dist_stats.csv
-├── ...
-analysis/                 # Sección Análisis (SR, etc.)
-└── sr/                   # Soiling Ratio
-    ├── soilingkit_sr.csv   # proceso aparte: python -m analysis.sr.calcular_sr
-    └── grafico_sr.png
-├── pvstand/
-├── temperatura/
-├── solys2/               # Solys2 raw y base de referencia
-│   ├── raw_solys2_data.csv
-│   └── solys2_poa_500_clear_sky.csv       # generado en paso 2
-├── refcells/
-└── ...
+TESIS_SOILING/
+├── download_data.py
+├── requirements.txt
+├── data/                  # Datos (no se versionan en git)
+│   ├── iv600/
+│   ├── pv_glasses/
+│   ├── dustiq/
+│   ├── soilingkit/        # Soiling Kit (Data): raw, filtrado, sesión mediodía solar
+│   │   ├── soilingkit_raw_data.csv
+│   │   ├── soilingkit_poa_500_clear_sky.csv   # opción 12
+│   │   ├── soilingkit_solar_noon.csv         # opción 13 (entrada para Análisis SR)
+│   │   └── soilingkit_solar_noon_dist_stats.csv
+│   ├── pvstand/
+│   ├── temperatura/
+│   ├── solys2/            # Solys2 raw y base de referencia
+│   │   ├── raw_solys2_data.csv
+│   │   └── solys2_poa_500_clear_sky.csv      # generado en paso 2
+│   ├── refcells/
+│   └── ...
+└── analysis/              # Sección Análisis (SR, etc.)
+    └── sr/                # Soiling Ratio (proceso aparte: python -m analysis.sr.calcular_sr)
+        ├── soilingkit_sr.csv
+        └── grafico_sr.png
 ```
 
 ---
@@ -109,12 +129,12 @@ El objetivo de este paso es obtener una **base de referencia de irradiancia**: s
 
 ## 2.1 Entrada y salida
 
-- **Entrada:** `data/solys2/raw_solys2_data.csv` (columnas: timestamp, GHI, DHI, DNI).
+- **Entrada:** `data/solys2/raw_solys2_data.csv` (columnas: timestamp, GHI, DHI, DNI). Ruta completa: `TESIS_SOILING/data/solys2/...`.
 - **Salida:** `data/solys2/solys2_poa_500_clear_sky.csv` (BASE DE REFERENCIA).
 - **Función en código:** `procesar_solys2_base_referencia(solys2_csv_path, output_dir, umbral_poa=None, umbral_clear_sky=None)`.
 - **Cómo ejecutarlo:**
-  - **Opción 10:** Tras descargar Solys2, si `pvlib` está disponible, se ejecuta automáticamente este procesamiento.
-  - **Opción 12:** Ejecutar solo el procesamiento (sin volver a descargar), usando el `raw_solys2_data.csv` ya existente.
+  - **Opción 9:** Tras descargar Solys2, si `pvlib` está disponible, se ejecuta automáticamente este procesamiento.
+  - **Opción 11:** Ejecutar solo el procesamiento (sin volver a descargar), usando el `raw_solys2_data.csv` ya existente.
 
 ## 2.2 Configuración del sitio
 
@@ -286,11 +306,12 @@ El **cálculo de SR** y el **gráfico** se realizan en la **sección Análisis**
 
 El cálculo de SR **no está en el menú** de `download_data.py`. Hay que ejecutarlo por separado:
 
-- **Línea de comandos (recomendado):** desde la raíz del proyecto:
+- **Línea de comandos (recomendado):** desde la carpeta **TESIS_SOILING** (para que las rutas por defecto sean correctas):
   ```bash
+  cd TESIS_SOILING
   python -m analysis.sr.calcular_sr
   ```
-  Usa por defecto `data/soilingkit/soilingkit_solar_noon.csv` (entrada) y `analysis/sr/` (salida). Requiere haber ejecutado antes la opción 13 en `download_data.py`.
+  Usa por defecto `data/soilingkit/soilingkit_solar_noon.csv` (entrada) y `analysis/sr/` (salida), es decir `TESIS_SOILING/data/...` y `TESIS_SOILING/analysis/sr/`. Requiere haber ejecutado antes la opción 13 o 14 en `download_data.py`.
 
 - **Con rutas explícitas:**  
   `python -m analysis.sr.calcular_sr [ruta_solar_noon.csv] [carpeta_salida]`
@@ -299,7 +320,7 @@ El cálculo de SR **no está en el menú** de `download_data.py`. Hay que ejecut
 
 # Flujo desde cero
 
-Al ejecutar `python download_data.py` se piden **fechas de inicio y fin**. Luego puedes seguir una de estas dos vías.
+Ejecutar el script de descarga desde **TESIS_SOILING** (`python download_data.py`) o desde la carpeta padre (`python TESIS_SOILING/download_data.py`). Se piden **fechas de inicio y fin**; los datos se guardan en **TESIS_SOILING/data/**.
 
 ## Opción A: Todo en un solo paso (recomendado)
 
@@ -307,20 +328,20 @@ Al ejecutar `python download_data.py` se piden **fechas de inicio y fin**. Luego
 |------|--------|-----------|
 | 1 | En el menú elegir **opción 14** — *Descargar todo* | **Orden:** descarga de los 8 módulos → base de referencia (Solys2) → **filtro POA/clear-sky a todos** → **selección ventana Soiling Kit** (sesión más cercana al mediodía solar). Se genera `soilingkit_solar_noon.csv` en el mismo flujo. |
 | 2 | (Opcional) Responder *s* a “¿Crear gráficos?” | Gráficos estáticos en cada carpeta. |
-| 3 | **Solo si quieres Soiling Ratio:** En la terminal, **fuera del menú:** `python -m analysis.sr.calcular_sr` | Lee `soilingkit_solar_noon.csv`, calcula SR y genera `analysis/sr/soilingkit_sr.csv` y `analysis/sr/grafico_sr.png`. (Opción 13 solo si no usaste 14 y necesitas generar o regenerar `soilingkit_solar_noon.csv`.) |
+| 3 | **Solo si quieres Soiling Ratio:** Desde **TESIS_SOILING**, en la terminal: `python -m analysis.sr.calcular_sr` | Lee `data/soilingkit/soilingkit_solar_noon.csv`, calcula SR y genera `analysis/sr/soilingkit_sr.csv` y `analysis/sr/grafico_sr.png`. (Opción 13 solo si no usaste 14 y necesitas generar o regenerar `soilingkit_solar_noon.csv`.) |
 
 ## Opción B: Paso a paso
 
 | Paso | Acción | Resultado |
 |------|--------|-----------|
-| 1 | **Opción 9** — Descargar Solys2 | `data/solys2/raw_solys2_data.csv` y (si hay pvlib) `solys2_poa_500_clear_sky.csv`. |
+| 1 | **Opción 9** — Descargar Solys2 | `data/solys2/raw_solys2_data.csv` y (si hay pvlib) `solys2_poa_500_clear_sky.csv` (en `TESIS_SOILING/data/`). |
 | 2 | **Opción 11** (opcional) | Regenerar solo la base de referencia. |
-| 3 | Descargar módulos (opciones 1, 4, 5, 6, 7, 8, 10) o **opción 14** (todos) | Archivos raw en cada carpeta. |
+| 3 | Descargar módulos (opciones 1, 4, 5, 6, 7, 8, 10) o **opción 14** (todos) | Archivos raw en cada carpeta de `data/`. |
 | 4 | **Opción 12** — Aplicar filtro POA/clear-sky a todos | En cada carpeta: `<modulo>_poa_500_clear_sky.csv`. (Si usaste 14 en el paso 3, ya está aplicado.) |
-| 5 | **Opción 13** — Soiling Kit: sesión mediodía solar | `soilingkit_solar_noon.csv` (entrada para SR). |
-| 6 | En la terminal, **fuera del menú:** `python -m analysis.sr.calcular_sr` | SR y gráfico en `analysis/sr/`. |
+| 5 | **Opción 13** — Soiling Kit: sesión mediodía solar | `data/soilingkit/soilingkit_solar_noon.csv` (entrada para SR). |
+| 6 | Desde **TESIS_SOILING:** `python -m analysis.sr.calcular_sr` | SR y gráfico en `analysis/sr/`. |
 
-**Resumen mínimo desde cero:** ejecutar script → fechas → **14** (Descargar todo: descarga → filtros → selección ventana Soiling Kit). Para SR: `python -m analysis.sr.calcular_sr`. La opción 13 solo hace falta si no usaste 14 y quieres generar `soilingkit_solar_noon.csv` a partir de datos ya descargados.
+**Resumen mínimo desde cero:** ejecutar `download_data.py` (desde TESIS_SOILING o con `python TESIS_SOILING/download_data.py`) → fechas → **14** (Descargar todo: descarga → filtros → selección ventana Soiling Kit). Para SR: desde **TESIS_SOILING** ejecutar `python -m analysis.sr.calcular_sr`. La opción 13 solo hace falta si no usaste 14 y quieres generar `soilingkit_solar_noon.csv` a partir de datos ya descargados.
 
 ---
 
@@ -338,6 +359,8 @@ La base de referencia debe generarse a partir de un Solys2 descargado para el mi
 
 # Resumen de archivos clave
 
+Todas las rutas son relativas a **TESIS_SOILING/**.
+
 | Archivo | Descripción |
 |---------|-------------|
 | `data/solys2/raw_solys2_data.csv` | Solys2 crudo (GHI, DHI, DNI) desde ClickHouse. |
@@ -349,6 +372,6 @@ La base de referencia debe generarse a partir de un Solys2 descargado para el mi
 | `analysis/sr/soilingkit_sr.csv` | Soiling Ratio (Análisis): serie diaria con columna **SR** (%). Entrada: `soilingkit_solar_noon.csv`. |
 | `analysis/sr/grafico_sr.png` | Gráfico de SR en el tiempo (sección Análisis). |
 
-**Organización:** **Data** (`data/`, opciones 6, 9, 11–13): descarga y procesamiento. **Análisis** (`analysis/sr/`): cálculo de SR y gráfico en un **proceso aparte** (`python -m analysis.sr.calcular_sr`).
+**Organización:** **Data** (`data/`, opciones 6, 9, 11–14): descarga y procesamiento; datos en **TESIS_SOILING/data/** (no se versionan en git). **Análisis** (`analysis/sr/`): cálculo de SR y gráfico en un **proceso aparte** (`python -m analysis.sr.calcular_sr`, ejecutado desde TESIS_SOILING).
 
 Este documento refleja el procedimiento implementado en `download_data.py` hasta la fecha descrita.

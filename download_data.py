@@ -47,7 +47,7 @@ El script guiará al usuario a través de:
 3. Configuración adicional según el tipo seleccionado (fotoceldas, horarios, etc.)
 
 Los datos descargados se guardan en CSV en el directorio configurado:
-si_test/data/ (raíz del proyecto; si este script está en TESIS_SOILING/, se usa la carpeta padre)
+TESIS_SOILING/data/ (dentro de esta carpeta; los .csv/.png están en .gitignore y no se suben a git)
 
 NOTAS:
 ------
@@ -109,9 +109,9 @@ CLICKHOUSE_CONFIG = {
 DEFAULT_START_DATE = pd.to_datetime('01/08/2024', dayfirst=True).tz_localize('UTC')
 DEFAULT_END_DATE = pd.to_datetime('01/08/2025', dayfirst=True).tz_localize('UTC')
 
-# Directorio de salida - datos en la raíz del proyecto (si_test), no en TESIS_SOILING
+# Directorio de salida - datos dentro de TESIS_SOILING (no se suben a git: .gitignore con *.csv, *.png, etc.)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)  # si_test (carpeta padre de TESIS_SOILING)
+PROJECT_ROOT = SCRIPT_DIR  # TESIS_SOILING (carpeta donde está este script)
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 

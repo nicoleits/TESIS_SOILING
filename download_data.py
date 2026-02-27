@@ -126,7 +126,7 @@ SITE_CONFIG = {
 }
 UMBRAL_POA = 500          # W/m² - mínimo POA para considerar condición de referencia
 UMBRAL_CLEAR_SKY = 0.8    # ratio mínimo GHI_medido / GHI_clear_sky (Ineichen)
-MAX_DIST_SOLAR_NOON_MIN = 45  # máx. distancia (min) ventana → mediodía solar para aceptar el día
+MAX_DIST_SOLAR_NOON_MIN = 50  # máx. distancia (min) ventana → mediodía solar para aceptar el día
 UMBRAL_ISC_MIN = 1.0  # mínimo Isc(e) e Isc(p) en A para conservar la fila (filtro de corriente)
 
 # ============================================================================

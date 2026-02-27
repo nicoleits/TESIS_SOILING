@@ -8,7 +8,7 @@ Alinea el resto de módulos a los mismos horarios (ventana de 5 min por día) qu
 |------------------------|----------|
 | **1 min** (pv_glasses, dustiq, temperatura, refcells) | Se seleccionan los mismos 5 minutos diarios que el Soiling Kit y se promedia. |
 | **5 min** (pvstand) | Se selecciona el dato más cercano al instante central del Soiling Kit. |
-| **Irregular** (iv600) | Se selecciona el dato más cercano al Soiling Kit que no esté a más de **1 hora** de distancia. |
+| **Irregular** (iv600) | Se selecciona **una fila por módulo** por día (la más cercana al Soiling Kit dentro de 1 h), para tener 434, 439 y 440 en el mismo timestamp y calcular SR. |
 
 ## Filtro de estabilidad
 

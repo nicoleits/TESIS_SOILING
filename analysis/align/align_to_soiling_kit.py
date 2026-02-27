@@ -5,8 +5,8 @@ y filtra por estabilidad de irradiancia: (G_max - G_min) / G_med < 10%.
 Reglas de alineación:
 - Frecuencia 1 min: se seleccionan los mismos 5 minutos diarios que el Soiling Kit (promedio).
 - Frecuencia 5 min: se selecciona el dato más cercano al instante central del Soiling Kit.
-- Horarios irregulares (ej. IV600): se selecciona el dato más cercano al Soiling Kit,
-  que no esté a más de 1 hora de distancia.
+- Horarios irregulares (ej. IV600): se selecciona **una fila por módulo** por día (la más cercana
+  al Soiling Kit dentro de 1 h), para poder calcular SR con referencia 439 y sucios 434/440 en el mismo timestamp.
 
 Uso (desde TESIS_SOILING):
   python -m analysis.align.align_to_soiling_kit
@@ -209,6 +209,56 @@ def alinear_modulo_irregular(csv_path, sesiones, time_col, max_minutos=MAX_DISTA
     return out
 
 
+def alinear_iv600_por_sesion(csv_path, sesiones, time_col, max_minutos=MAX_DISTANCIA_IRREGULAR_MIN, tz_local=None, session_gap_min=10):
+    """
+    IV600: agrupa mediciones en sesiones (gap entre lecturas consecutivas > session_gap_min).
+    Para cada día del Soiling Kit, selecciona la sesión completa (todos sus módulos) cuyo
+    primer timestamp esté más cercano al centro del Soiling Kit, dentro de max_minutos.
+    Así todos los módulos del día provienen de la misma sesión de medición.
+    Requiere columna 'module' en el CSV. Timestamp de salida = center del Soiling Kit.
+    """
+    df = pd.read_csv(csv_path)
+    tc = time_col or _get_time_col(df)
+    if not tc or "module" not in df.columns:
+        return None
+    df[tc] = pd.to_datetime(df[tc])
+    df[tc] = _ensure_utc(df[tc], tz_local=tz_local)
+    df = df[df["module"] != "Unknown Module"].sort_values(tc).copy()
+
+    # Asignar ID de sesión: nueva sesión cuando el gap supera session_gap_min
+    gap = df[tc].diff().dt.total_seconds() / 60
+    gap.iloc[0] = session_gap_min + 1  # primer registro = inicio de sesión
+    df["_session_id"] = (gap > session_gap_min).cumsum()
+
+    # Tiempo representativo de cada sesión = timestamp más temprano de la sesión
+    session_times = df.groupby("_session_id")[tc].min()
+
+    max_delta = pd.Timedelta(minutes=max_minutos)
+    filas = []
+    for _, row in sesiones.iterrows():
+        center = row["_center"]
+        # Restringir a sesiones del mismo día para evitar cruces entre días
+        same_day = session_times[session_times.dt.date == row["_date"]]
+        if same_day.empty:
+            continue
+        dists = (same_day - center).abs()
+        best_session = dists.idxmin()
+        if dists[best_session] > max_delta:
+            continue
+        # Tomar TODAS las filas de esa sesión (todos los módulos medidos juntos)
+        sub = df[df["_session_id"] == best_session].copy()
+        sub = sub.drop(columns=["_session_id"], errors="ignore")
+        sub = sub.rename(columns={tc: "timestamp"})
+        sub["timestamp"] = center  # timestamp unificado = centro del Soiling Kit
+        sub["_date"] = row["_date"]
+        filas.append(sub)
+    if not filas:
+        return None
+    out = pd.concat(filas, ignore_index=True)
+    out = out.drop(columns=["_date"], errors="ignore")
+    return out
+
+
 def run_align(data_dir, output_suffix="_aligned_solar_noon.csv", aplicar_estabilidad=True):
     """
     Ejecuta la alineación de todos los módulos y el filtro de estabilidad.
@@ -255,6 +305,9 @@ def run_align(data_dir, output_suffix="_aligned_solar_noon.csv", aplicar_estabil
             out_df = alinear_modulo_1min(csv_path, sesiones, time_col)
         elif freq == "5min":
             out_df = alinear_modulo_5min(csv_path, sesiones, time_col)
+        elif section == "iv600":
+            # IV600: seleccionar la sesión completa más cercana al Soiling Kit (todos los módulos juntos)
+            out_df = alinear_iv600_por_sesion(csv_path, sesiones, time_col, tz_local=tz_local)
         else:
             out_df = alinear_modulo_irregular(csv_path, sesiones, time_col, tz_local=tz_local)
         if out_df is None or out_df.empty:

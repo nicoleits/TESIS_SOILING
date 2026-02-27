@@ -7,7 +7,7 @@ Definiciones por módulo:
 - refcells: SR = 100 × min(1RC411, 1RC412) / max(...) (ratio entre las dos celdas).
 - pv_glasses: SR por celda = 100 × R_FCi / REF; se guarda SR medio y por celda.
 - pvstand: SR = 100 × (pmax_sucio / pmax_referencia); referencia = perc2 (limpio), sucio = perc1. Opcional: corrección T a 25 °C (IEC 60891).
-- iv600: SR = 100 × pmp / ref_pmp (ref = percentil 95 por módulo).
+- iv600: SR = 100 × pmp / pmp_439; 439 = referencia (limpio), 434 = sucio. Mismo timestamp.
 
 Entrada: CSVs alineados en data/<modulo>/<modulo>_aligned_solar_noon.csv
 Salida: analysis/sr/<modulo>_sr.csv (y opcionalmente gráfico).
@@ -33,13 +33,16 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-PERCENTIL_REFERENCIA = 95  # percentil para iv600 (referencia por módulo cuando no hay limpio fijo)
+# IV600: 439 = referencia (limpio), 434 = sucio. Una fila por timestamp con SR_Pmax_434 y SR_Isc_434.
+IV600_MODULO_REF = "1MD439"
+IV600_MODULO_SUCIO = "1MD434"
 
 # PVStand: 439 = referencia (limpio), 440 = sucio. En datos: perc2fixed = 439, perc1fixed = 440.
 # SR_Pmax = 100 × Pmax440/Pmax439,  SR_Isc = 100 × Isc440/Isc439 (usamos imax como corriente).
 PVSTAND_MODULO_439_REF = "perc2fixed"
 PVSTAND_MODULO_440_SUCIO = "perc1fixed"
 UMBRAL_PMAX_FALLA_PVSTAND = 10  # W; si Pmax439 o Pmax440 < 10 se considera falla y SR_Pmax/SR_Isc = NaN
+UMBRAL_SR_MIN = 80.0             # SR < este valor se considera outlier y se descarta (NaN)
 T_REF_C = 25.0
 ALPHA_ISC_TIPICO = 0.0004
 BETA_PMAX_TIPICO = -0.0036
@@ -142,13 +145,27 @@ def sr_pvstand(df):
 
 
 def sr_iv600(df):
-    """SR = 100 × pmp / ref_pmp; ref = percentil 95 por módulo."""
-    if "pmp" not in df.columns or "module" not in df.columns:
+    """
+    IV600: 439 = ref (limpio), 434 = sucio. SR 434 vs 439.
+    Una fila por timestamp con SR_Pmax_434, SR_Isc_434 y los valores de pmp/isc usados.
+    Se excluye Unknown Module.
+    """
+    if "pmp" not in df.columns or "module" not in df.columns or "isc" not in df.columns:
+        return None
+    time_col = _get_time_col(df)
+    if time_col is None:
         return None
     df = df.copy()
-    ref = df.groupby("module")["pmp"].transform(lambda x: x.quantile(PERCENTIL_REFERENCIA / 100.0))
-    df["SR"] = np.where(ref > 1e-9, 100.0 * df["pmp"] / ref, np.nan)
-    return df
+    df = df[df["module"] != "Unknown Module"].copy()
+    ref = df[df["module"] == IV600_MODULO_REF][[time_col, "pmp", "isc"]].drop_duplicates(time_col)
+    ref = ref.rename(columns={"pmp": "pmp439", "isc": "isc439"})
+    m434 = df[df["module"] == "1MD434"][[time_col, "pmp", "isc"]].drop_duplicates(time_col)
+    m434 = m434.rename(columns={"pmp": "pmp434", "isc": "isc434"})
+    out = ref.merge(m434, on=time_col, how="outer")
+    out["SR_Pmax_434"] = np.where(out["pmp439"].abs() > 1e-9, 100.0 * out["pmp434"] / out["pmp439"], np.nan)
+    out["SR_Isc_434"] = np.where(out["isc439"].abs() > 1e-9, 100.0 * out["isc434"] / out["isc439"], np.nan)
+    out["SR"] = out["SR_Pmax_434"]
+    return out
 
 
 MODULOS_SR = [
@@ -169,7 +186,12 @@ def _grafico_sr_modulo(df, modulo, output_dir, time_col="timestamp"):
         plt.figure()
         df_plot = df.copy()
         df_plot[time_col] = pd.to_datetime(df_plot[time_col])
-        if "SR_Pmax" in df_plot.columns and "SR_Isc" in df_plot.columns:
+        if modulo == "iv600" and "SR_Pmax_434" in df_plot.columns:
+            df_plot = df_plot.sort_values(time_col)
+            plt.plot(df_plot[time_col], df_plot["SR_Pmax_434"], ".-", label="434 SR_Pmax", alpha=0.8)
+            plt.plot(df_plot[time_col], df_plot["SR_Isc_434"], ".-", label="434 SR_Isc", alpha=0.8)
+            plt.legend()
+        elif "SR_Pmax" in df_plot.columns and "SR_Isc" in df_plot.columns:
             df_plot = df_plot.sort_values(time_col)
             plt.plot(df_plot[time_col], df_plot["SR_Pmax"], ".-", label="SR_Pmax (100×Pmax440/Pmax439)", alpha=0.8)
             plt.plot(df_plot[time_col], df_plot["SR_Isc"], ".-", label="SR_Isc (100×Isc440/Isc439)", alpha=0.8)
@@ -223,6 +245,13 @@ def run_sr_modulos(data_dir, output_dir):
         if df is None or "SR" not in df.columns:
             logger.warning("Omite %s: no se pudo calcular SR.", modulo)
             continue
+        # Filtro outliers: SR < UMBRAL_SR_MIN → NaN en todas las columnas SR
+        sr_cols = [c for c in df.columns if c.startswith("SR")]
+        n_antes = df["SR"].notna().sum()
+        mask_outlier = df["SR"] < UMBRAL_SR_MIN
+        if mask_outlier.any():
+            df.loc[mask_outlier, sr_cols] = np.nan
+            logger.info("   Filtro outliers SR < %.0f%%: %d filas descartadas.", UMBRAL_SR_MIN, mask_outlier.sum())
         # Orden: timestamp, SR, resto
         cols = [tc, "SR"] + [c for c in df.columns if c not in (tc, "SR")]
         df = df[[c for c in cols if c in df.columns]]

@@ -258,7 +258,7 @@ Tras el filtrado por irradiancia (opcional), se puede reducir el Soiling Kit a *
 
 - Los datos del Soiling Kit pueden tener resolución de segundos (varias filas por minuto). Se agrupan en **ventanas de 5 minutos** (timestamp redondeado al inicio del intervalo de 5 min).
 - Para cada ventana se calcula el **centro del intervalo** (inicio + 2,5 min) y se promedian las columnas de dato (Isc(e), Isc(p), Te(C), Tp(C)) dentro de esa ventana. Resultado: **una fila por ventana de 5 minutos** (timestamp = centro del intervalo, valores = promedios).
-- Para **cada día** se calcula el mediodía solar en UTC y se elige, entre todas las ventanas de 5 min de ese día, la que tiene el **centro más cercano** (en tiempo) a ese mediodía solar. Esa fila es la “sesión de 5 min más cercana al mediodía solar”. Solo se acepta esa ventana si la distancia (valor absoluto) al mediodía solar es **≤ 45 min** (`MAX_DIST_SOLAR_NOON_MIN = 45`). Si se supera, el día se descarta; el log indica cuántos días se descartaron.
+- Para **cada día** se calcula el mediodía solar en UTC y se elige, entre todas las ventanas de 5 min de ese día, la que tiene el **centro más cercano** (en tiempo) a ese mediodía solar. Esa fila es la “sesión de 5 min más cercana al mediodía solar”. Solo se acepta esa ventana si la distancia (valor absoluto) al mediodía solar es **≤ 50 min** (`MAX_DIST_SOLAR_NOON_MIN = 50`). Si se supera, el día se descarta; el log indica cuántos días se descartaron.
 
 ## 4.3 Distancia ventana–mediodía solar y estadísticos
 

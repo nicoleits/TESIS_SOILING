@@ -43,7 +43,7 @@ El script **`calcular_sr_modulos.py`** calcula un indicador tipo Soiling Ratio p
 | **refcells**   | SR = 100 × (Sucia/Limpia); 1RC412 = limpia, 1RC411 = sucia. Los datos de refcells se filtran por irradiancia POA ≥ 500 W/m² en ambas celdas (en el pipeline de datos y al calcular SR). |
 | **pv_glasses** | SR por celda = 100 × R_FCi / REF; SR = media de las 5 celdas |
 | **pvstand**    | 439 = ref (limpio), 440 = sucio. **SR_Pmax** = 100×Pmax440/Pmax439, **SR_Isc** = 100×Isc440/Isc439 (imax como Isc). Una fila por timestamp. Filtro de falla: si Pmax439 o Pmax440 < 10 W se considera falla de equipo/sensor y SR_Pmax/SR_Isc = NaN. |
-| **iv600**      | SR = 100 × pmp / P95(pmp) por módulo (referencia = percentil 95) |
+| **iv600**      | SR = 100 × pmp / pmp_439; 439 = referencia (limpio), 434 y 440 = sucios. Mismo timestamp. |
 
 ### PVStand con corrección de temperatura (IEC 60891)
 
@@ -54,6 +54,16 @@ python -m analysis.sr.calcular_sr_pvstand_corr
 ```
 
 Opcional: `python -m analysis.sr.calcular_sr_pvstand_corr [data_dir] [output_dir]`
+
+### IV600 con corrección de temperatura (IEC 60891)
+
+Script **`calcular_sr_iv600_corr.py`**: usa `iv600_aligned_solar_noon.csv` y `temperatura_aligned_solar_noon.csv`. 439 = ref (1TE418), 434 y 440 = sucios (1TE416). Genera **`iv600_sr_corr.csv`** y **`iv600_sr_corr.png`** (SR_corr por módulo).
+
+```bash
+python -m analysis.sr.calcular_sr_iv600_corr
+```
+
+Opcional: `python -m analysis.sr.calcular_sr_iv600_corr [data_dir] [output_dir]`
 
 ## Ejecución
 

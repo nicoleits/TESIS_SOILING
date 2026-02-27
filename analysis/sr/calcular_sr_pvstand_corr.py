@@ -38,6 +38,7 @@ UMBRAL_PMAX_FALLA_W = 10
 T_REF_C = 25.0
 ALPHA_ISC = 0.0004   # /°C
 BETA_PMAX = -0.0036  # /°C
+UMBRAL_SR_MIN = 80.0  # SR < este valor se considera outlier y se descarta (NaN)
 # Temperatura: columnas en temperatura_aligned_solar_noon.csv
 COL_T_SUCIO = "1TE416(C)"   # 440
 COL_T_REF = "1TE418(C)"     # 439
@@ -128,6 +129,16 @@ def run_pvstand_sr_corr(data_dir, output_dir):
         100.0 * out["imax440_corr"] / out["imax439_corr"],
         np.nan,
     )
+
+    # Filtro outliers: SR < UMBRAL_SR_MIN → NaN en todas las columnas SR
+    sr_cols = ["SR_Pmax", "SR_Isc", "SR_Pmax_corr", "SR_Isc_corr"]
+    for col_sr in sr_cols:
+        if col_sr in out.columns:
+            mask_outlier = out[col_sr] < UMBRAL_SR_MIN
+            if mask_outlier.any():
+                out.loc[mask_outlier, sr_cols] = np.nan
+                logger.info("   Filtro outliers %s < %.0f%%: %d filas descartadas.", col_sr, UMBRAL_SR_MIN, mask_outlier.sum())
+                break  # un solo módulo puede afectar a todos, evitar doble conteo
 
     # Columnas de salida (sin columnas auxiliares)
     cols_out = [time_col, "SR_Pmax", "SR_Isc", "SR_Pmax_corr", "SR_Isc_corr", "T439", "T440"]

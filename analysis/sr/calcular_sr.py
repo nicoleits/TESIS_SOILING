@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Umbral de corriente (A): solo días con Isc(e) e Isc(p) >= este valor
 UMBRAL_ISC_MIN = 1.0
+# SR < este valor se considera outlier y se descarta
+UMBRAL_SR_MIN = 80.0
 
 try:
     import matplotlib
@@ -85,6 +87,12 @@ def calcular_sr(solar_noon_csv_path, output_dir, umbral_isc=UMBRAL_ISC_MIN):
     if len(df) == 0:
         logger.warning("⚠️  No quedaron registros tras el filtro de corriente.")
         return None
+
+    # Filtro outliers: SR < UMBRAL_SR_MIN → NaN
+    mask_outlier = df['SR'] < UMBRAL_SR_MIN
+    if mask_outlier.any():
+        df.loc[mask_outlier, 'SR'] = np.nan
+        logger.info(f"   Filtro outliers SR < {UMBRAL_SR_MIN}%: {mask_outlier.sum()} filas descartadas.")
 
     # Orden de columnas: timestamp, dist_solar_noon_min, SR, resto
     base = ['timestamp', 'dist_solar_noon_min', 'SR']

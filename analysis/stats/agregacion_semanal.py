@@ -102,6 +102,23 @@ def agregar_semanal_q25_y_std(serie, nombre):
     return q25, std, n
 
 
+def normalizar_desde_inicio(q25, std):
+    """
+    Normaliza q25 y std al primer valor válido de q25:
+      q25_norm(t) = 100 × q25(t) / q25(t0)
+      std_norm(t) = 100 × std(t) / q25(t0)
+    Devuelve (q25_norm, std_norm) o (None, None) si no hay datos.
+    """
+    if q25 is None or q25.dropna().empty:
+        return None, None
+    t0_val = q25.dropna().iloc[0]
+    if abs(t0_val) < 1e-9:
+        return None, None
+    q25_norm = 100.0 * q25 / t0_val
+    std_norm = 100.0 * std / t0_val if std is not None else pd.Series(0.0, index=q25.index)
+    return q25_norm, std_norm
+
+
 def dispersion_entre_semanas(serie_semanal, nombre):
     """Estadísticos de dispersión sobre la serie semanal Q25."""
     vals = serie_semanal.dropna()
@@ -215,6 +232,110 @@ def grafico_series_con_barras_error(datos_por_instrumento, out_path):
     logger.info("Gráfico barras T: %s", out_path)
 
 
+def grafico_norm_superpuesto(datos_norm, out_path):
+    """Todas las series normalizadas superpuestas en un único panel."""
+    fig, ax = plt.subplots(figsize=(14, 6))
+    colors = plt.cm.tab10.colors
+    for i, (nombre, (q25_n, std_n)) in enumerate(datos_norm.items()):
+        color = colors[i % len(colors)]
+        errs = std_n.fillna(0).values
+        ax.plot(q25_n.index, q25_n.values, "o-", color=color,
+                linewidth=1.3, markersize=3, label=nombre, alpha=0.85)
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
+    ax.set_xlabel("Semana (inicio lunes)")
+    ax.set_ylabel("SR normalizado (%)")
+    ax.set_title("SR Semanal Q25 Normalizado (t₀ = 100%) — todos los instrumentos")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    fig.autofmt_xdate()
+    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico norm superpuesto: %s", out_path)
+
+
+def grafico_norm_superpuesto_sombra(datos_norm, out_path):
+    """Todas las series normalizadas superpuestas con área sombreada ±1 std."""
+    fig, ax = plt.subplots(figsize=(14, 6))
+    colors = plt.cm.tab10.colors
+    for i, (nombre, (q25_n, std_n)) in enumerate(datos_norm.items()):
+        color = colors[i % len(colors)]
+        errs = std_n.fillna(0).values
+        ax.plot(q25_n.index, q25_n.values, "o-", color=color,
+                linewidth=1.3, markersize=3, label=nombre, alpha=0.85)
+        ax.fill_between(q25_n.index, q25_n.values - errs, q25_n.values + errs,
+                        alpha=0.12, color=color)
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
+    ax.set_xlabel("Semana (inicio lunes)")
+    ax.set_ylabel("SR normalizado (%)")
+    ax.set_title("SR Semanal Q25 Normalizado ± std (t₀ = 100%) — todos los instrumentos")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    fig.autofmt_xdate()
+    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico norm superpuesto con sombra: %s", out_path)
+
+
+def grafico_norm_barras_t(datos_norm, out_path):
+    """Un subplot por instrumento con SR normalizado y barras T (±1 std escalado)."""
+    nombres = list(datos_norm.keys())
+    n_inst = len(nombres)
+    ncols = 2
+    nrows = (n_inst + 1) // ncols
+    colors = plt.cm.tab10.colors
+
+    # Límites Y globales sobre datos normalizados
+    all_lower, all_upper = [], []
+    for nombre, (q25_n, std_n) in datos_norm.items():
+        errs = std_n.fillna(0).values
+        all_lower.append((q25_n.values - errs).min())
+        all_upper.append((q25_n.values + errs).max())
+    y_min = max(75, np.floor(min(all_lower)) - 2)
+    y_max = min(105, np.ceil(max(all_upper)) + 1)
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 3.5 * nrows), sharex=False)
+    axes = axes.flatten()
+
+    for i, nombre in enumerate(nombres):
+        ax = axes[i]
+        q25_n, std_n = datos_norm[nombre]
+        color = colors[i % len(colors)]
+        fechas = q25_n.index
+        vals = q25_n.values
+        errs = std_n.fillna(0).values
+
+        ax.plot(fechas, vals, "o-", color=color, linewidth=1.4, markersize=4, label="Q25 norm.")
+        ax.errorbar(fechas, vals, yerr=errs, fmt="none",
+                    ecolor=color, elinewidth=1.0, capsize=3, capthick=1.2, alpha=0.7)
+        ax.fill_between(fechas, vals - errs, vals + errs, alpha=0.15, color=color, label="±1 std")
+        ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+        ax.set_title(nombre, fontsize=10, fontweight="bold")
+        ax.set_ylabel("SR norm. (%)", fontsize=8)
+        ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+        ax.xaxis.set_major_locator(mdates.MonthLocator(interval=3))
+        ax.tick_params(axis="x", labelsize=7, rotation=30)
+        ax.tick_params(axis="y", labelsize=7)
+        ax.grid(True, alpha=0.25)
+        ax.set_ylim(y_min, y_max)
+        ax.legend(fontsize=7, loc="lower left")
+
+    for j in range(n_inst, len(axes)):
+        axes[j].set_visible(False)
+
+    fig.suptitle("SR Semanal Q25 Normalizado (t₀ = 100%) ± std — por instrumento",
+                 fontsize=12, fontweight="bold", y=1.01)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    logger.info("Gráfico norm barras T: %s", out_path)
+
+
 def grafico_boxplot_dispersion(df_largo, out_path):
     """Boxplot de la distribución semanal Q25 por instrumento."""
     instrumentos = df_largo["instrumento"].unique()
@@ -246,6 +367,7 @@ def run(sr_dir, out_dir):
 
     series_semanales = {}
     datos_con_std = {}   # nombre -> (q25, std, n) para barras T
+    datos_norm = {}      # nombre -> (q25_norm, std_norm) para gráficos normalizados
     disp_rows = []
 
     for nombre, ruta, col_sr in config:
@@ -260,6 +382,9 @@ def run(sr_dir, out_dir):
         series_semanales[nombre] = semanal
         q25, std, n = agregar_semanal_q25_y_std(serie_diaria, nombre)
         datos_con_std[nombre] = (q25, std, n)
+        q25_n, std_n = normalizar_desde_inicio(q25, std)
+        if q25_n is not None:
+            datos_norm[nombre] = (q25_n, std_n)
         disp = dispersion_entre_semanas(semanal, nombre)
         if disp:
             disp_rows.append(disp)
@@ -270,19 +395,35 @@ def run(sr_dir, out_dir):
         logger.error("No se encontraron datos SR.")
         return False
 
-    # --- CSV formato ancho
+    # --- CSV formato ancho (original)
     df_ancho = pd.DataFrame(series_semanales)
     df_ancho.index.name = "semana"
     df_ancho.to_csv(os.path.join(out_dir, "sr_semanal_q25.csv"))
     logger.info("CSV ancho: %s", os.path.join(out_dir, "sr_semanal_q25.csv"))
 
-    # --- CSV formato largo
+    # --- CSV formato largo (original)
     largo_rows = []
     for nombre, s in series_semanales.items():
         for fecha, val in s.items():
             largo_rows.append({"semana": fecha, "instrumento": nombre, "sr_q25": val})
     df_largo = pd.DataFrame(largo_rows)
     df_largo.to_csv(os.path.join(out_dir, "sr_semanal_q25_largo.csv"), index=False)
+
+    # --- CSV normalizado (ancho)
+    norm_series = {nombre: q25_n for nombre, (q25_n, _) in datos_norm.items()}
+    df_norm = pd.DataFrame(norm_series)
+    df_norm.index.name = "semana"
+    df_norm.to_csv(os.path.join(out_dir, "sr_semanal_norm.csv"))
+    logger.info("CSV norm: %s", os.path.join(out_dir, "sr_semanal_norm.csv"))
+
+    # --- CSV normalizado (largo)
+    norm_largo_rows = []
+    for nombre, (q25_n, _) in datos_norm.items():
+        for fecha, val in q25_n.items():
+            norm_largo_rows.append({"semana": fecha, "instrumento": nombre, "sr_norm": val})
+    df_norm_largo = pd.DataFrame(norm_largo_rows)
+    df_norm_largo.to_csv(os.path.join(out_dir, "sr_semanal_norm_largo.csv"), index=False)
+    logger.info("CSV norm largo: %s", os.path.join(out_dir, "sr_semanal_norm_largo.csv"))
 
     # --- CSV dispersión
     df_disp = pd.DataFrame(disp_rows).round(4)
@@ -295,6 +436,12 @@ def run(sr_dir, out_dir):
         grafico_boxplot_dispersion(df_largo, os.path.join(out_dir, "dispersion_semanal.png"))
         grafico_series_con_barras_error(datos_con_std,
                                         os.path.join(out_dir, "sr_semanal_barras_t.png"))
+        grafico_norm_superpuesto(datos_norm,
+                                 os.path.join(out_dir, "sr_semanal_norm.png"))
+        grafico_norm_superpuesto_sombra(datos_norm,
+                                        os.path.join(out_dir, "sr_semanal_norm_sombra.png"))
+        grafico_norm_barras_t(datos_norm,
+                              os.path.join(out_dir, "sr_semanal_norm_barras_t.png"))
 
     return True
 

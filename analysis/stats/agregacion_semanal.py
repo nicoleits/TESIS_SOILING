@@ -37,15 +37,17 @@ except ImportError:
 # Configuración: (nombre_display, ruta_csv, columna_SR)
 # ---------------------------------------------------------------------------
 def _build_config(sr_dir):
+    # Formato: (nombre, ruta_csv, columna_SR, fecha_max_inclusive)
+    # fecha_max_inclusive=None → sin límite
     return [
-        ("Soiling Kit",     os.path.join(sr_dir, "soilingkit_sr.csv"),       "SR"),
-        ("DustIQ",          os.path.join(sr_dir, "dustiq_sr.csv"),            "SR"),
-        ("RefCells",        os.path.join(sr_dir, "refcells_sr.csv"),          "SR"),
+        ("Soiling Kit",   os.path.join(sr_dir, "soilingkit_sr.csv"),     "SR",                None),
+        ("DustIQ",        os.path.join(sr_dir, "dustiq_sr.csv"),          "SR",                None),
+        ("RefCells",      os.path.join(sr_dir, "refcells_sr.csv"),        "SR",                "2025-05-18"),  # hasta 3ª semana mayo 2025
         # PV Glasses excluido: fórmula pendiente de validación rigurosa
-        ("PVStand",         os.path.join(sr_dir, "pvstand_sr.csv"),           "SR_Pmax"),
-        ("PVStand corr",    os.path.join(sr_dir, "pvstand_sr_corr.csv"),      "SR_Pmax_corr"),
-        ("IV600",           os.path.join(sr_dir, "iv600_sr.csv"),             "SR_Pmax_434"),
-        ("IV600 corr",      os.path.join(sr_dir, "iv600_sr_corr.csv"),        "SR_Pmax_corr_434"),
+        ("PVStand",       os.path.join(sr_dir, "pvstand_sr.csv"),         "SR_Pmax",           None),
+        ("PVStand corr",  os.path.join(sr_dir, "pvstand_sr_corr.csv"),    "SR_Pmax_corr",      None),
+        ("IV600",         os.path.join(sr_dir, "iv600_sr.csv"),           "SR_Pmax_434",       None),
+        ("IV600 corr",    os.path.join(sr_dir, "iv600_sr_corr.csv"),      "SR_Pmax_corr_434",  None),
     ]
 
 
@@ -56,9 +58,9 @@ def _get_time_col(df):
     return None
 
 
-def cargar_sr_diario(ruta, col_sr):
+def cargar_sr_diario(ruta, col_sr, fecha_max=None):
     """Carga el CSV de SR, devuelve Serie indexada por fecha con los valores de col_sr.
-    Mantiene todos los registros diarios sin deduplicar para poder calcular std intrasemanal.
+    fecha_max: str 'YYYY-MM-DD' opcional — descarta datos posteriores a esa fecha (inclusive).
     """
     if not os.path.isfile(ruta):
         return None
@@ -70,6 +72,11 @@ def cargar_sr_diario(ruta, col_sr):
     df = df.dropna(subset=[col_sr])
     df = df[df[col_sr] >= 80.0]  # respetar filtro outliers
     df["fecha"] = df[tc].dt.date
+    if fecha_max is not None:
+        corte = pd.to_datetime(fecha_max).date()
+        antes = len(df)
+        df = df[df["fecha"] <= corte]
+        logger.info("   Corte fecha %s: %d → %d filas", fecha_max, antes, len(df))
     # Un valor por día (tomar el primero si hubiera duplicados)
     df = df.drop_duplicates("fecha")
     serie = df.set_index("fecha")[col_sr]
@@ -370,8 +377,8 @@ def run(sr_dir, out_dir):
     datos_norm = {}      # nombre -> (q25_norm, std_norm) para gráficos normalizados
     disp_rows = []
 
-    for nombre, ruta, col_sr in config:
-        serie_diaria = cargar_sr_diario(ruta, col_sr)
+    for nombre, ruta, col_sr, fecha_max in config:
+        serie_diaria = cargar_sr_diario(ruta, col_sr, fecha_max=fecha_max)
         if serie_diaria is None or serie_diaria.empty:
             logger.info("Omite %s: sin datos.", nombre)
             continue

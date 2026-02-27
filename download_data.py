@@ -2081,10 +2081,40 @@ MODULOS_FILTRO_POA_CLEAR_SKY = [
 ]
 
 
+# RefCells: columnas de irradiancia POA; solo mantener filas con ambas >= 500 W/m²
+REFCELLS_COL_SUCIA = "1RC411(w.m-2)"
+REFCELLS_COL_LIMPIA = "1RC412(w.m-2)"
+UMBRAL_POA_REFCELLS_W_M2 = 500
+
+
+def _aplicar_filtro_poa_refcells(csv_path):
+    """
+    Filtra el CSV de refcells (ya filtrado por referencia) dejando solo filas con
+    irradiancia POA >= 500 W/m² en ambas celdas (1RC411 y 1RC412).
+    Sobrescribe el archivo. Devuelve True si OK.
+    """
+    try:
+        df = pd.read_csv(csv_path)
+        for col in (REFCELLS_COL_SUCIA, REFCELLS_COL_LIMPIA):
+            if col not in df.columns:
+                logger.warning(f"   [refcells] No se encontró columna {col}; no se aplica filtro POA.")
+                return True
+        n_antes = len(df)
+        mask = (df[REFCELLS_COL_SUCIA] >= UMBRAL_POA_REFCELLS_W_M2) & (df[REFCELLS_COL_LIMPIA] >= UMBRAL_POA_REFCELLS_W_M2)
+        df = df.loc[mask].reset_index(drop=True)
+        df.to_csv(csv_path, index=False)
+        logger.info(f"   [refcells] Filtro POA (≥{UMBRAL_POA_REFCELLS_W_M2} W/m² en ambas celdas): {n_antes} → {len(df)} registros")
+        return True
+    except Exception as e:
+        logger.error(f"❌ Error al aplicar filtro POA en refcells: {e}")
+        return False
+
+
 def aplicar_filtro_poa_clear_sky_a_todos(output_dir, referencia_csv_path, tolerance_minutes=5):
     """
     Aplica el filtro por irradiancia (POA + clear-sky) a todos los módulos que tengan archivo raw.
     Salida en cada carpeta: <modulo>_poa_500_clear_sky.csv
+    Para refcells, además se aplica filtro POA sobre las propias celdas (≥500 W/m² en ambas).
     """
     if not os.path.isfile(referencia_csv_path):
         logger.error(f"❌ No existe la base de referencia: {referencia_csv_path}")
@@ -2098,6 +2128,8 @@ def aplicar_filtro_poa_clear_sky_a_todos(output_dir, referencia_csv_path, tolera
         out_path = os.path.join(output_dir, section, out_name)
         if filtrar_por_irradiancia_referencia(raw_path, referencia_csv_path, out_path, tolerance_minutes, section):
             rutas_ok.append(out_path)
+            if section == "refcells":
+                _aplicar_filtro_poa_refcells(out_path)
     return rutas_ok
 
 

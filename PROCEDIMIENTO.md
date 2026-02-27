@@ -318,6 +318,68 @@ El cálculo de SR **no está en el menú** de `download_data.py`. Hay que ejecut
 
 ---
 
+# 6) Alineación de otros módulos con sesiones Soiling Kit
+
+Con las sesiones del Soiling Kit listas (una ventana de 5 min por día, mediodía solar), se alinean el resto de módulos a esos mismos horarios y se filtra por **estabilidad de irradiancia**.
+
+## 6.1 Reglas de alineación
+
+| Frecuencia del módulo | Criterio |
+|------------------------|----------|
+| **1 min** (pv_glasses, dustiq, temperatura, refcells) | Se seleccionan los mismos 5 minutos diarios que el Soiling Kit y se promedia. |
+| **5 min** (pvstand) | Se selecciona el dato más cercano al instante central del Soiling Kit. |
+| **Irregular** (iv600) | Se selecciona el dato más cercano al Soiling Kit que no esté a más de **1 hora** de distancia. |
+
+## 6.2 Filtro de estabilidad de irradiancia
+
+Al final se filtran los datos según estabilidad de G (POA del Solys2) en la ventana de 5 min:
+
+- **Criterio:** `(G_max - G_min) / G_med < 10%`
+- **G:** columna POA en `data/solys2/solys2_poa_500_clear_sky.csv` (1 min) en esa ventana.
+- Solo se conservan los días que cumplen el criterio; se aplica a todos los módulos (incluido Soiling Kit).
+
+## 6.3 Entradas y salidas
+
+- **Entradas:** `soilingkit_solar_noon.csv`, `solys2_poa_500_clear_sky.csv`, y los CSVs filtrados de cada módulo (`*_poa_500_clear_sky.csv`).
+- **Salidas (en cada carpeta de módulo):**
+  - `soilingkit_aligned_solar_noon.csv` (Soiling Kit filtrado por estabilidad).
+  - `<modulo>_aligned_solar_noon.csv` (pv_glasses, dustiq, temperatura, refcells, pvstand, iv600).
+
+## 6.4 Cómo ejecutarlo
+
+Desde **TESIS_SOILING**:
+
+```bash
+python -m analysis.align.align_to_soiling_kit
+```
+
+Opcional: `python -m analysis.align.align_to_soiling_kit [ruta_a_data]`
+
+---
+
+# 7) Análisis estadístico de datos filtrados/alineados
+
+Tras la alineación: `python -m analysis.stats.analisis_estadistico`. Ver descripción en tabla de archivos (§ Resumen de archivos clave).
+
+---
+
+# 8) Soiling Ratio (SR) por módulo (datos filtrados)
+
+A partir de los CSVs **alineados** se calcula un indicador tipo SR para cada módulo: `python -m analysis.sr.calcular_sr_modulos`
+
+| Módulo | Definición de SR |
+|--------|------------------|
+| soilingkit | SR = 100 × Isc(p) / Isc(e) |
+| dustiq | SR = SR_C11_Avg (sensor en %) |
+| refcells | SR = 100 × min(1RC411, 1RC412) / max(...) |
+| pv_glasses | SR = media de 100×R_FCi/REF (más columnas SR_R_FC1…SR_R_FC5) |
+| pvstand | SR = 100 × pmax / P95(pmax) por módulo |
+| iv600 | SR = 100 × pmp / P95(pmp) por módulo |
+
+Salidas: `analysis/sr/<modulo>_sr.csv` y `analysis/sr/<modulo>_sr.png`.
+
+---
+
 # Flujo desde cero
 
 Ejecutar el script de descarga desde **TESIS_SOILING** (`python download_data.py`) o desde la carpeta padre (`python TESIS_SOILING/download_data.py`). Se piden **fechas de inicio y fin**; los datos se guardan en **TESIS_SOILING/data/**.
@@ -328,7 +390,8 @@ Ejecutar el script de descarga desde **TESIS_SOILING** (`python download_data.py
 |------|--------|-----------|
 | 1 | En el menú elegir **opción 14** — *Descargar todo* | **Orden:** descarga de los 8 módulos → base de referencia (Solys2) → **filtro POA/clear-sky a todos** → **selección ventana Soiling Kit** (sesión más cercana al mediodía solar). Se genera `soilingkit_solar_noon.csv` en el mismo flujo. |
 | 2 | (Opcional) Responder *s* a “¿Crear gráficos?” | Gráficos estáticos en cada carpeta. |
-| 3 | **Solo si quieres Soiling Ratio:** Desde **TESIS_SOILING**, en la terminal: `python -m analysis.sr.calcular_sr` | Lee `data/soilingkit/soilingkit_solar_noon.csv`, calcula SR y genera `analysis/sr/soilingkit_sr.csv` y `analysis/sr/grafico_sr.png`. (Opción 13 solo si no usaste 14 y necesitas generar o regenerar `soilingkit_solar_noon.csv`.) |
+| 3 | **(Opcional)** Alinear otros módulos a sesiones Soiling Kit: `python -m analysis.align.align_to_soiling_kit` | Genera `*_aligned_solar_noon.csv` en cada carpeta (mismos 5 min/día + filtro estabilidad G < 10%). |
+| 4 | **Solo si quieres Soiling Ratio:** Desde **TESIS_SOILING**, en la terminal: `python -m analysis.sr.calcular_sr` | Lee `data/soilingkit/soilingkit_solar_noon.csv`, calcula SR y genera `analysis/sr/soilingkit_sr.csv` y `analysis/sr/grafico_sr.png`. (Opción 13 solo si no usaste 14 y necesitas generar o regenerar `soilingkit_solar_noon.csv`.) |
 
 ## Opción B: Paso a paso
 
@@ -339,7 +402,8 @@ Ejecutar el script de descarga desde **TESIS_SOILING** (`python download_data.py
 | 3 | Descargar módulos (opciones 1, 4, 5, 6, 7, 8, 10) o **opción 14** (todos) | Archivos raw en cada carpeta de `data/`. |
 | 4 | **Opción 12** — Aplicar filtro POA/clear-sky a todos | En cada carpeta: `<modulo>_poa_500_clear_sky.csv`. (Si usaste 14 en el paso 3, ya está aplicado.) |
 | 5 | **Opción 13** — Soiling Kit: sesión mediodía solar | `data/soilingkit/soilingkit_solar_noon.csv` (entrada para SR). |
-| 6 | Desde **TESIS_SOILING:** `python -m analysis.sr.calcular_sr` | SR y gráfico en `analysis/sr/`. |
+| 6 | **(Opcional)** Alinear módulos y filtro estabilidad: `python -m analysis.align.align_to_soiling_kit` | `*_aligned_solar_noon.csv` en cada carpeta. |
+| 7 | Desde **TESIS_SOILING:** `python -m analysis.sr.calcular_sr` | SR y gráfico en `analysis/sr/`. |
 
 **Resumen mínimo desde cero:** ejecutar `download_data.py` (desde TESIS_SOILING o con `python TESIS_SOILING/download_data.py`) → fechas → **14** (Descargar todo: descarga → filtros → selección ventana Soiling Kit). Para SR: desde **TESIS_SOILING** ejecutar `python -m analysis.sr.calcular_sr`. La opción 13 solo hace falta si no usaste 14 y quieres generar `soilingkit_solar_noon.csv` a partir de datos ya descargados.
 
@@ -351,7 +415,8 @@ Ejecutar el script de descarga desde **TESIS_SOILING** (`python download_data.py
 2. **Opción 11** solo si quieres regenerar la referencia sin volver a descargar Solys2.
 3. **Soiling Kit** (opción 6) o el resto de módulos (1, 4, 5, 7, 8, 10); o **14** para todo.
 4. **Opción 13** para serie diaria del Soiling Kit (mediodía solar).
-5. **SR:** ejecutar aparte `python -m analysis.sr.calcular_sr`.
+5. **(Opcional)** Alineación y estabilidad: `python -m analysis.align.align_to_soiling_kit`.
+6. **SR:** ejecutar aparte `python -m analysis.sr.calcular_sr`.
 
 La base de referencia debe generarse a partir de un Solys2 descargado para el mismo rango de fechas (opción 9 o 14).
 
@@ -371,7 +436,13 @@ Todas las rutas son relativas a **TESIS_SOILING/**.
 | `data/soilingkit/soilingkit_solar_noon_dist_stats.csv` | Estadísticos de la distancia ventana–mediodía solar. |
 | `analysis/sr/soilingkit_sr.csv` | Soiling Ratio (Análisis): serie diaria con columna **SR** (%). Entrada: `soilingkit_solar_noon.csv`. |
 | `analysis/sr/grafico_sr.png` | Gráfico de SR en el tiempo (sección Análisis). |
+| `data/soilingkit/soilingkit_aligned_solar_noon.csv` | Soiling Kit alineado + filtro estabilidad (G &lt; 10%). |
+| `data/<modulo>/<modulo>_aligned_solar_noon.csv` | Módulos alineados a sesiones Soiling Kit (pv_glasses, dustiq, temperatura, refcells, pvstand, iv600). |
+| `analysis/stats/analisis_estadistico_report.md` | Reporte de análisis estadístico (dispersión en ventana 5 min y entre días). |
+| `analysis/stats/analisis_estadistico_resumen.csv` | Resumen estadístico en CSV. |
+| `analysis/sr/<modulo>_sr.csv` | SR por módulo (soilingkit, dustiq, refcells, pv_glasses, pvstand, iv600). |
+| `analysis/sr/<modulo>_sr.png` | Gráfico de SR por módulo. |
 
-**Organización:** **Data** (`data/`, opciones 6, 9, 11–14): descarga y procesamiento; datos en **TESIS_SOILING/data/** (no se versionan en git). **Análisis** (`analysis/sr/`): cálculo de SR y gráfico en un **proceso aparte** (`python -m analysis.sr.calcular_sr`, ejecutado desde TESIS_SOILING).
+**Organización:** **Data** (`data/`, opciones 6, 9, 11–14): descarga y procesamiento; datos en **TESIS_SOILING/data/** (no se versionan en git). **Análisis** (`analysis/sr/`): cálculo de SR; **analysis/align/**: alineación y filtro de estabilidad; **analysis/stats/**: análisis estadístico de datos alineados (`python -m analysis.stats.analisis_estadistico`, desde TESIS_SOILING).
 
 Este documento refleja el procedimiento implementado en `download_data.py` hasta la fecha descrita.

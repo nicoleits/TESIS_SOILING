@@ -90,19 +90,29 @@ def sr_refcells(df):
 
 
 def sr_pv_glasses(df):
-    """SR por celda = 100 × R_FCi / REF; SR = media de las 5 celdas."""
-    ref = "REF"
-    cells = [c for c in df.columns if c.startswith("R_FC") and "Avg" in c]
-    if not cells or ref not in df.columns:
+    """
+    PV Glasses: FC1 y FC2 = celdas limpias (referencia); FC3, FC4, FC5 = sucias.
+    REF = (FC1 + FC2) / 2  →  coincide con la columna REF del CSV.
+    SR_FCi = 100 × R_FCi_Avg / REF   (i = 3, 4, 5)
+    SR = media de SR_FC3, SR_FC4, SR_FC5
+    """
+    ref_col = "REF"
+    dirty_cells = ["R_FC3_Avg", "R_FC4_Avg", "R_FC5_Avg"]
+    available = [c for c in dirty_cells if c in df.columns]
+    if not available or ref_col not in df.columns:
         return None
     df = df.copy()
-    for c in cells:
-        df[f"SR_{c.replace('_Avg','')}"] = np.where(
-            df[ref].abs() > 1e-9,
-            100.0 * df[c] / df[ref],
+    sr_cols = []
+    for c in available:
+        col_sr = f"SR_{c.replace('_Avg', '')}"
+        df[col_sr] = np.where(
+            df[ref_col].abs() > 1e-9,
+            100.0 * df[c] / df[ref_col],
             np.nan,
         )
-    df["SR"] = df[[f"SR_{c.replace('_Avg','')}" for c in cells]].mean(axis=1)
+        sr_cols.append(col_sr)
+    df["SR"] = df[sr_cols].mean(axis=1)
+    # Conservar también FC1 y FC2 como columnas de información
     return df
 
 

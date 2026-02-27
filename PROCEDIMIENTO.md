@@ -247,7 +247,7 @@ En los logs se indica el número de registros antes y después del filtrado.
 
 **Orden del proceso (Data):** la selección de ventana es **procesamiento**, no descarga. Orden recomendado: **1) Descargar** → **2) Aplicar filtros generales** (POA/clear-sky) → **3) Selección ventana Soiling Kit** (sesión más cercana al mediodía solar). Así se obtienen los mismos resultados; solo queda claro que la selección va después de los filtros.
 
-Tras el filtrado por irradiancia (opcional), se puede reducir el Soiling Kit a **una fila por día**: la sesión de 5 minutos cuyo instante central está **más cercana al mediodía solar** de ese día, con la restricción de que esa ventana no puede estar a más de **45 minutos** del mediodía solar.
+Tras el filtrado por irradiancia (opcional), se puede reducir el Soiling Kit a **una fila por día**: la sesión de 5 minutos cuyo instante central está **más cercana al mediodía solar** de ese día, con la restricción de que esa ventana no puede estar a más de **50 minutos** del mediodía solar.
 
 ## 4.1 Mediodía solar (UTC)
 
@@ -273,14 +273,14 @@ Tras el filtrado por irradiancia (opcional), se puede reducir el Soiling Kit a *
 ## 4.4 Entrada, salida y uso (Data)
 
 - **Entrada:** CSV del Soiling Kit soilingkit (crudo o filtrado). Se recomienda el **filtrado** (`soilingkit_poa_500_clear_sky.csv`) si existe.
-- **Salida (Data):** **`data/soilingkit/soilingkit_solar_noon.csv`**: una fila por día (ventana ≤ 45 min del mediodía solar, **Isc(e), Isc(p) ≥ 1 A**). Columnas: `timestamp`, **`dist_solar_noon_min`**, `Isc(e)`, `Isc(p)`, `Te(C)`, `Tp(C)` — **sin columna SR** (SR se calcula en la sección Análisis). **`soilingkit_solar_noon_dist_stats.csv`**: estadísticos de distancia. Timestamps en **UTC (UTC+0)**.
+- **Salida (Data):** **`data/soilingkit/soilingkit_solar_noon.csv`**: una fila por día (ventana ≤ 50 min del mediodía solar, **Isc(e), Isc(p) ≥ 1 A**). Columnas: `timestamp`, **`dist_solar_noon_min`**, `Isc(e)`, `Isc(p)`, `Te(C)`, `Tp(C)` — **sin columna SR** (SR se calcula en la sección Análisis). **`soilingkit_solar_noon_dist_stats.csv`**: estadísticos de distancia. Timestamps en **UTC (UTC+0)**.
 - **Función en código:** `soiling_kit_seleccionar_mediodia_solar(..., section='soilingkit')`.
 - **Cómo ejecutarlo:** **Opción 13** (solo este paso) o **Opción 14** (Descargar todo: descarga → filtros → selección ventana Soiling Kit). En ambos casos se usa `soilingkit_poa_500_clear_sky.csv` si existe; si no, `soilingkit_raw_data.csv`.
 
 ## 4.5 Resumen (Data)
 
 - Se calcula el **mediodía solar en UTC** para cada fecha (pvlib).
-- Se agregan los datos en **ventanas de 5 min** y se selecciona **una ventana por día** (centro más próximo al mediodía solar, distancia ≤ 45 min).
+- Se agregan los datos en **ventanas de 5 min** y se selecciona **una ventana por día** (centro más próximo al mediodía solar, distancia ≤ 50 min).
 - Se añade **`dist_solar_noon_min`** y estadísticos en `soilingkit_solar_noon_dist_stats.csv`.
 - Se aplica **filtro de corriente** (Isc ≥ 1 A). El resultado es la serie diaria lista para la **sección Análisis SR** (ejecutar aparte: `python -m analysis.sr.calcular_sr`).
 
@@ -297,7 +297,8 @@ El **cálculo de SR** y el **gráfico** se realizan en la **sección Análisis**
 ## 5.2 Cálculo y salidas
 
 - **Fórmula:** **SR = 100 × Isc(p) / Isc(e)** (Soiling Ratio en %, protegida / expuesta). Si Isc(e) es cero o despreciable, se asigna NaN.
-- **Filtro:** Se aplica (o se reaplica) el filtro de corriente **Isc(e), Isc(p) ≥ 1 A**.
+- **Filtro de corriente:** Se aplica (o se reaplica) el filtro **Isc(e), Isc(p) ≥ 1 A**.
+- **Filtro de outliers:** SR < 80% se considera outlier y se reemplaza por NaN (`UMBRAL_SR_MIN = 80.0`). La fila se conserva en el CSV para mantener trazabilidad.
 - **Salidas (en `analysis/sr/`):**
   - **`soilingkit_sr.csv`**: mismo contenido que el CSV de entrada más la columna **`SR`** (%). Una fila por día.
   - **`grafico_sr.png`**: gráfico de SR en el tiempo (marcadores *, línea de referencia SR = 100).
@@ -328,7 +329,7 @@ Con las sesiones del Soiling Kit listas (una ventana de 5 min por día, mediodí
 |------------------------|----------|
 | **1 min** (pv_glasses, dustiq, temperatura, refcells) | Se seleccionan los mismos 5 minutos diarios que el Soiling Kit y se promedia. |
 | **5 min** (pvstand) | Se selecciona el dato más cercano al instante central del Soiling Kit. |
-| **Irregular** (iv600) | Se selecciona el dato más cercano al Soiling Kit que no esté a más de **1 hora** de distancia. |
+| **Irregular por sesiones** (iv600) | El IV600 realiza mediciones en grupos ("sesiones") de ~2–5 min donde mide todos los módulos secuencialmente, con ~50–60 min entre sesiones. Se agrupa por sesión y se selecciona la **sesión completa** (todos sus módulos) cuyo primer timestamp esté más cercano al Soiling Kit y no supere **1 hora** de distancia. Esto garantiza que 434 y 439 siempre provengan de la misma sesión. |
 
 ## 6.2 Filtro de estabilidad de irradiancia
 
@@ -371,12 +372,50 @@ A partir de los CSVs **alineados** se calcula un indicador tipo SR para cada mó
 |--------|------------------|
 | soilingkit | SR = 100 × Isc(p) / Isc(e) |
 | dustiq | SR = SR_C11_Avg (sensor en %) |
-| refcells | SR = 100 × min(1RC411, 1RC412) / max(...) |
+| refcells | SR = 100 × min(1RC411, 1RC412) / max(1RC411, 1RC412) |
 | pv_glasses | SR = media de 100×R_FCi/REF (más columnas SR_R_FC1…SR_R_FC5) |
-| pvstand | SR = 100 × pmax / P95(pmax) por módulo |
-| iv600 | SR = 100 × pmp / P95(pmp) por módulo |
+| pvstand | SR_Pmax = 100 × pmax_440 / pmax_439; SR_Isc = 100 × imax_440 / imax_439 (439 = ref limpio, 440 = sucio) |
+| iv600 | SR_Pmax_434 = 100 × pmp_434 / pmp_439; SR_Isc_434 = 100 × isc_434 / isc_439 (439 = ref limpio, 434 = sucio). El CSV incluye además los valores `pmp439`, `isc439`, `pmp434`, `isc434` usados en el cálculo. |
+
+**Filtro de outliers (todos los módulos):** SR < 80% → NaN (`UMBRAL_SR_MIN = 80.0`). La fila se conserva en el CSV.
 
 Salidas: `analysis/sr/<modulo>_sr.csv` y `analysis/sr/<modulo>_sr.png`.
+
+## 8.1 SR con corrección de temperatura (IEC 60891)
+
+Para PVStand e IV600 existen scripts adicionales que corrigen los valores de Pmax e Isc a 25 °C antes de calcular el SR:
+
+- **PVStand corregido:** `python -m analysis.sr.calcular_sr_pvstand_corr`
+  - Carga `pvstand_aligned_solar_noon.csv` y `temperatura_aligned_solar_noon.csv`.
+  - Aplica: `Pmax_corr = Pmax / (1 + β×(T−25))`, `Isc_corr = Isc / (1 + α×(T−25))` con β = −0.0036 /°C y α = 0.0004 /°C.
+  - Temperaturas: 1TE418(C) → módulo 439 (ref), 1TE416(C) → módulo 440 (sucio). Merge temporal con tolerancia 15 min.
+  - Salidas: `analysis/sr/pvstand_sr_corr.csv` y `pvstand_sr_corr.png` (columnas SR_Pmax, SR_Isc, SR_Pmax_corr, SR_Isc_corr, T439, T440).
+
+- **IV600 corregido:** `python -m analysis.sr.calcular_sr_iv600_corr`
+  - Carga `iv600_aligned_solar_noon.csv` y `temperatura_aligned_solar_noon.csv`.
+  - Misma corrección IEC 60891. Temperatura: 1TE418(C) → módulo 439, 1TE416(C) → módulo 434. Merge con tolerancia 15 min.
+  - Salidas: `analysis/sr/iv600_sr_corr.csv` y `iv600_sr_corr.png` (columnas SR_Pmax_corr_434, SR_Isc_corr_434).
+
+**Nota:** si no hay datos de temperatura para un período, las columnas SR_*_corr quedan NaN para esos días (el SR sin corregir no se ve afectado).
+
+## 8.2 Secuencia completa de regeneración de SR
+
+Cuando se regenera `soilingkit_solar_noon.csv` (opción 13 o 14), hay que ejecutar en orden:
+
+```bash
+# 1. Realinear todos los módulos a las nuevas sesiones
+python -m analysis.align.align_to_soiling_kit
+
+# 2. SR del soilingkit (desde solar_noon.csv)
+python -m analysis.sr.calcular_sr
+
+# 3. SR de todos los módulos (desde aligned)
+python -m analysis.sr.calcular_sr_modulos
+
+# 4. SR con corrección de temperatura
+python -m analysis.sr.calcular_sr_pvstand_corr
+python -m analysis.sr.calcular_sr_iv600_corr
+```
 
 ---
 
@@ -432,7 +471,7 @@ Todas las rutas son relativas a **TESIS_SOILING/**.
 | `data/solys2/solys2_poa_500_clear_sky.csv` | Base de referencia: instantes con POA ≥ 500 W/m² y clear_sky_ratio ≥ 0.8. |
 | `data/soilingkit/soilingkit_raw_data.csv` | Soiling Kit (tabla soilingkit) crudo. Timestamps en **UTC (UTC+0)**. |
 | `data/soilingkit/soilingkit_poa_500_clear_sky.csv` | Soiling Kit filtrado por irradiancia de referencia. |
-| `data/soilingkit/soilingkit_solar_noon.csv` | Soiling Kit (Data): una fila por día (mediodía solar, ≤ 45 min, Isc ≥ 1 A). Columnas: `timestamp`, `dist_solar_noon_min`, `Isc(e)`, `Isc(p)`, etc. **Sin SR** (SR se calcula en Análisis). |
+| `data/soilingkit/soilingkit_solar_noon.csv` | Soiling Kit (Data): una fila por día (mediodía solar, ≤ 50 min, Isc ≥ 1 A). Columnas: `timestamp`, `dist_solar_noon_min`, `Isc(e)`, `Isc(p)`, etc. **Sin SR** (SR se calcula en Análisis). |
 | `data/soilingkit/soilingkit_solar_noon_dist_stats.csv` | Estadísticos de la distancia ventana–mediodía solar. |
 | `analysis/sr/soilingkit_sr.csv` | Soiling Ratio (Análisis): serie diaria con columna **SR** (%). Entrada: `soilingkit_solar_noon.csv`. |
 | `analysis/sr/grafico_sr.png` | Gráfico de SR en el tiempo (sección Análisis). |
@@ -440,9 +479,18 @@ Todas las rutas son relativas a **TESIS_SOILING/**.
 | `data/<modulo>/<modulo>_aligned_solar_noon.csv` | Módulos alineados a sesiones Soiling Kit (pv_glasses, dustiq, temperatura, refcells, pvstand, iv600). |
 | `analysis/stats/analisis_estadistico_report.md` | Reporte de análisis estadístico (dispersión en ventana 5 min y entre días). |
 | `analysis/stats/analisis_estadistico_resumen.csv` | Resumen estadístico en CSV. |
-| `analysis/sr/<modulo>_sr.csv` | SR por módulo (soilingkit, dustiq, refcells, pv_glasses, pvstand, iv600). |
+| `analysis/sr/<modulo>_sr.csv` | SR por módulo (soilingkit, dustiq, refcells, pv_glasses, pvstand, iv600). El CSV de iv600 incluye también `pmp439`, `isc439`, `pmp434`, `isc434`. SR < 80% → NaN (filtro outliers). |
 | `analysis/sr/<modulo>_sr.png` | Gráfico de SR por módulo. |
+| `analysis/sr/pvstand_sr_corr.csv` | PVStand SR con corrección de temperatura IEC 60891 a 25 °C. Columnas: SR_Pmax, SR_Isc, SR_Pmax_corr, SR_Isc_corr, T439, T440. |
+| `analysis/sr/pvstand_sr_corr.png` | Gráfico PVStand SR corregido. |
+| `analysis/sr/iv600_sr_corr.csv` | IV600 SR con corrección de temperatura IEC 60891 a 25 °C. Columnas: SR_Pmax_corr_434, SR_Isc_corr_434. |
+| `analysis/sr/iv600_sr_corr.png` | Gráfico IV600 SR corregido. |
 
 **Organización:** **Data** (`data/`, opciones 6, 9, 11–14): descarga y procesamiento; datos en **TESIS_SOILING/data/** (no se versionan en git). **Análisis** (`analysis/sr/`): cálculo de SR; **analysis/align/**: alineación y filtro de estabilidad; **analysis/stats/**: análisis estadístico de datos alineados (`python -m analysis.stats.analisis_estadistico`, desde TESIS_SOILING).
 
-Este documento refleja el procedimiento implementado en `download_data.py` hasta la fecha descrita.
+Este documento refleja el procedimiento implementado hasta el 27/02/2026. Cambios recientes:
+- `MAX_DIST_SOLAR_NOON_MIN` ajustado de 45 → **50 min** para cubrir meses de verano austral (jan–feb).
+- Alineación IV600 corregida: se selecciona la **sesión completa** más cercana (función `alinear_iv600_por_sesion`), garantizando que 434 y 439 siempre provengan de la misma sesión de medición.
+- `iv600_sr.csv` incluye ahora `pmp439`, `isc439`, `pmp434`, `isc434`.
+- Filtro de outliers SR < 80% (`UMBRAL_SR_MIN = 80.0`) aplicado en todos los scripts de SR.
+- Añadidos `pvstand_sr_corr` e `iv600_sr_corr` con corrección de temperatura IEC 60891.

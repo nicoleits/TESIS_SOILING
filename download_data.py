@@ -107,7 +107,7 @@ CLICKHOUSE_CONFIG = {
 }
 # Configuración de fechas por defecto
 DEFAULT_START_DATE = pd.to_datetime('01/08/2024', dayfirst=True).tz_localize('UTC')
-DEFAULT_END_DATE = pd.to_datetime('01/08/2025', dayfirst=True).tz_localize('UTC')
+DEFAULT_END_DATE = pd.to_datetime('31/08/2025', dayfirst=True).tz_localize('UTC')
 
 # Directorio de salida - datos dentro de TESIS_SOILING (no se suben a git: .gitignore con *.csv, *.png, etc.)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

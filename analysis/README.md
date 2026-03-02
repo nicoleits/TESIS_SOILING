@@ -9,6 +9,10 @@ En esta carpeta se agrupan los **análisis** que usan los datos ya descargados y
   Salida: `analysis/sr/soilingkit_sr.csv`, `analysis/sr/grafico_sr.png`.  
   Se ejecuta aparte: `python -m analysis.sr.calcular_sr`.
 
+## Informe unificado de metodologías
+
+Para una visión conjunta de las metodologías (SR/ópticas y gravimétrica): **[informe_metodologias.md](informe_metodologias.md)**.
+
 ## Orden recomendado
 
 1. **Data:** descarga y procesamiento (opciones 6, 9, 11, 12, 13).

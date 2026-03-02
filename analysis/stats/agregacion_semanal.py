@@ -43,7 +43,7 @@ def _build_config(sr_dir):
         ("Soiling Kit",   os.path.join(sr_dir, "soilingkit_sr.csv"),     "SR",                None),
         ("DustIQ",        os.path.join(sr_dir, "dustiq_sr.csv"),          "SR",                None),
         ("RefCells",      os.path.join(sr_dir, "refcells_sr.csv"),        "SR",                "2025-05-18"),  # hasta 3ª semana mayo 2025
-        # PV Glasses excluido: fórmula pendiente de validación rigurosa
+        # PV Glasses excluido: cada día de medición representa distinta duración de exposición (semanal, 2 sem, mensual, etc.); no hay una serie "un valor por semana" comparable al resto
         ("PVStand",       os.path.join(sr_dir, "pvstand_sr.csv"),         "SR_Pmax",           None),
         ("PVStand corr",  os.path.join(sr_dir, "pvstand_sr_corr.csv"),    "SR_Pmax_corr",      None),
         ("IV600",         os.path.join(sr_dir, "iv600_sr.csv"),           "SR_Pmax_434",       None),

@@ -33,21 +33,28 @@ try:
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
+try:
+    from analysis.config import PERIODO_ANALISIS_INICIO, PERIODO_ANALISIS_FIN, REFCELLS_FECHA_MAX
+except ImportError:
+    PERIODO_ANALISIS_INICIO = "2024-08-03"
+    PERIODO_ANALISIS_FIN = "2025-08-04"
+    REFCELLS_FECHA_MAX = "2025-05-20"
+
 # ---------------------------------------------------------------------------
-# Configuración: (nombre_display, ruta_csv, columna_SR)
+# Configuración: (nombre_display, ruta_csv, columna_SR, fecha_max_override).
+# fecha_max_override=None → usar PERIODO_ANALISIS_FIN.
+# PVStand e IV600: solo series corregidas (T), con Pmax e Isc por separado; etiquetas sin "corr".
 # ---------------------------------------------------------------------------
 def _build_config(sr_dir):
-    # Formato: (nombre, ruta_csv, columna_SR, fecha_max_inclusive)
-    # fecha_max_inclusive=None → sin límite
+    # PV Glasses excluido: cada medición es distinta duración de exposición; no comparable como serie semanal.
     return [
-        ("Soiling Kit",   os.path.join(sr_dir, "soilingkit_sr.csv"),     "SR",                None),
-        ("DustIQ",        os.path.join(sr_dir, "dustiq_sr.csv"),          "SR",                None),
-        ("RefCells",      os.path.join(sr_dir, "refcells_sr.csv"),        "SR",                "2025-05-18"),  # hasta 3ª semana mayo 2025
-        # PV Glasses excluido: cada día de medición representa distinta duración de exposición (semanal, 2 sem, mensual, etc.); no hay una serie "un valor por semana" comparable al resto
-        ("PVStand",       os.path.join(sr_dir, "pvstand_sr.csv"),         "SR_Pmax",           None),
-        ("PVStand corr",  os.path.join(sr_dir, "pvstand_sr_corr.csv"),    "SR_Pmax_corr",      None),
-        ("IV600",         os.path.join(sr_dir, "iv600_sr.csv"),           "SR_Pmax_434",       None),
-        ("IV600 corr",    os.path.join(sr_dir, "iv600_sr_corr.csv"),      "SR_Pmax_corr_434",  None),
+        ("Soiling Kit",   os.path.join(sr_dir, "soilingkit_sr.csv"),       "SR",                  None),
+        ("DustIQ",        os.path.join(sr_dir, "dustiq_sr.csv"),            "SR",                  None),
+        ("RefCells",      os.path.join(sr_dir, "refcells_sr.csv"),         "SR",                  REFCELLS_FECHA_MAX),
+        ("PVStand Pmax",  os.path.join(sr_dir, "pvstand_sr_corr.csv"),     "SR_Pmax_corr",        None),
+        ("PVStand Isc",   os.path.join(sr_dir, "pvstand_sr_corr.csv"),     "SR_Isc_corr",         None),
+        ("IV600 Pmax",    os.path.join(sr_dir, "iv600_sr_corr.csv"),       "SR_Pmax_corr_434",    None),
+        ("IV600 Isc",     os.path.join(sr_dir, "iv600_sr_corr.csv"),       "SR_Isc_corr_434",     None),
     ]
 
 
@@ -58,9 +65,9 @@ def _get_time_col(df):
     return None
 
 
-def cargar_sr_diario(ruta, col_sr, fecha_max=None):
+def cargar_sr_diario(ruta, col_sr, fecha_min=None, fecha_max=None):
     """Carga el CSV de SR, devuelve Serie indexada por fecha con los valores de col_sr.
-    fecha_max: str 'YYYY-MM-DD' opcional — descarta datos posteriores a esa fecha (inclusive).
+    fecha_min, fecha_max: str 'YYYY-MM-DD' opcionales — limita datos al rango [fecha_min, fecha_max] inclusive.
     """
     if not os.path.isfile(ruta):
         return None
@@ -72,11 +79,16 @@ def cargar_sr_diario(ruta, col_sr, fecha_max=None):
     df = df.dropna(subset=[col_sr])
     df = df[df[col_sr] >= 80.0]  # respetar filtro outliers
     df["fecha"] = df[tc].dt.date
-    if fecha_max is not None:
-        corte = pd.to_datetime(fecha_max).date()
+    if fecha_min is not None:
+        corte_ini = pd.to_datetime(fecha_min).date()
         antes = len(df)
-        df = df[df["fecha"] <= corte]
-        logger.info("   Corte fecha %s: %d → %d filas", fecha_max, antes, len(df))
+        df = df[df["fecha"] >= corte_ini]
+        logger.debug("   Corte fecha_min %s: %d → %d filas", fecha_min, antes, len(df))
+    if fecha_max is not None:
+        corte_fin = pd.to_datetime(fecha_max).date()
+        antes = len(df)
+        df = df[df["fecha"] <= corte_fin]
+        logger.debug("   Corte fecha_max %s: %d → %d filas", fecha_max, antes, len(df))
     # Un valor por día (tomar el primero si hubiera duplicados)
     df = df.drop_duplicates("fecha")
     serie = df.set_index("fecha")[col_sr]
@@ -275,8 +287,8 @@ def grafico_norm_superpuesto_sombra(datos_norm, out_path):
         ax.fill_between(q25_n.index, q25_n.values - errs, q25_n.values + errs,
                         alpha=0.12, color=color)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
-    ax.set_xlabel("Semana (inicio lunes)")
-    ax.set_ylabel("SR normalizado (%)")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("SR (%)")
     ax.set_title("SR Semanal Q25 Normalizado ± std (t₀ = 100%) — todos los instrumentos")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
@@ -377,8 +389,9 @@ def run(sr_dir, out_dir):
     datos_norm = {}      # nombre -> (q25_norm, std_norm) para gráficos normalizados
     disp_rows = []
 
-    for nombre, ruta, col_sr, fecha_max in config:
-        serie_diaria = cargar_sr_diario(ruta, col_sr, fecha_max=fecha_max)
+    for nombre, ruta, col_sr, fecha_max_override in config:
+        fecha_max = fecha_max_override if fecha_max_override is not None else PERIODO_ANALISIS_FIN
+        serie_diaria = cargar_sr_diario(ruta, col_sr, fecha_min=PERIODO_ANALISIS_INICIO, fecha_max=fecha_max)
         if serie_diaria is None or serie_diaria.empty:
             logger.info("Omite %s: sin datos.", nombre)
             continue

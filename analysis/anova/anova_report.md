@@ -7,16 +7,16 @@
 ---
 ## Conjunto: Pool completo
 
-**N total de observaciones:** 316  
+**N total de observaciones:** 308  
 **Semanas por instrumento:**
 
-- DustIQ: n=57
+- DustIQ: n=54
 - IV600: n=30
 - IV600 corr: n=29
-- PVStand: n=57
+- PVStand: n=54
 - PVStand corr: n=50
-- RefCells: n=36
-- Soiling Kit: n=57
+- RefCells: n=37
+- Soiling Kit: n=54
 
 ### 1. Supuestos
 
@@ -24,43 +24,42 @@
 
 | Instrumento | n | W | p | ¿Normal α=0.05? |
 |---|---|---|---|---|
-| DustIQ | 57 | 0.9398 | 0.0070 | ✗ |
+| DustIQ | 54 | 0.9327 | 0.0047 | ✗ |
 | IV600 | 30 | 0.9235 | 0.0332 | ✗ |
 | IV600 corr | 29 | 0.9299 | 0.0547 | ✓ |
-| PVStand | 57 | 0.9360 | 0.0048 | ✗ |
-| PVStand corr | 50 | 0.9625 | 0.1136 | ✓ |
-| RefCells | 36 | 0.9079 | 0.0056 | ✗ |
-| Soiling Kit | 57 | 0.9444 | 0.0111 | ✗ |
+| PVStand | 54 | 0.9062 | 0.0005 | ✗ |
+| PVStand corr | 50 | 0.9503 | 0.0351 | ✗ |
+| RefCells | 37 | 0.9141 | 0.0074 | ✗ |
+| Soiling Kit | 54 | 0.9355 | 0.0061 | ✗ |
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 10.1864  
+- Estadístico: 8.6841  
 - p-valor: 0.0  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 114.9572,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 182.3813,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 193.8952,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 200.6049,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
 | Par | Diferencia de medias | p_adj |
 |---|---|---|
-| DustIQ vs PVStand | -6.090 pp | 0.0000 |
-| DustIQ vs PVStand corr | -5.581 pp | 0.0000 |
-| IV600 vs PVStand | -5.985 pp | 0.0000 |
-| IV600 vs PVStand corr | -5.476 pp | 0.0000 |
-| IV600 corr vs PVStand | -6.858 pp | 0.0000 |
-| IV600 corr vs PVStand corr | -6.349 pp | 0.0000 |
-| PVStand vs RefCells | 6.977 pp | 0.0000 |
-| PVStand vs Soiling Kit | 5.684 pp | 0.0000 |
-| PVStand corr vs RefCells | 6.468 pp | 0.0000 |
-| PVStand corr vs Soiling Kit | 5.175 pp | 0.0000 |
-| RefCells vs Soiling Kit | -1.294 pp | 0.0309 |
+| DustIQ vs PVStand | -8.100 pp | 0.0000 |
+| DustIQ vs PVStand corr | -7.210 pp | 0.0000 |
+| IV600 vs PVStand | -7.961 pp | 0.0000 |
+| IV600 vs PVStand corr | -7.071 pp | 0.0000 |
+| IV600 corr vs PVStand | -8.834 pp | 0.0000 |
+| IV600 corr vs PVStand corr | -7.945 pp | 0.0000 |
+| PVStand vs RefCells | 8.870 pp | 0.0000 |
+| PVStand vs Soiling Kit | 7.705 pp | 0.0000 |
+| PVStand corr vs RefCells | 7.980 pp | 0.0000 |
+| PVStand corr vs Soiling Kit | 6.815 pp | 0.0000 |
 
 ### 5. Post-hoc Dunn + Bonferroni (pares significativos, p_adj < 0.05)
 
@@ -107,32 +106,33 @@
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 4.7438  
-- p-valor: 0.0002  
+- Estadístico: 4.5494  
+- p-valor: 0.0003  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 128.7499,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 223.6409,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 117.7726,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 118.4655,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
 | Par | Diferencia de medias | p_adj |
 |---|---|---|
-| DustIQ vs PVStand | -6.272 pp | 0.0000 |
-| DustIQ vs PVStand corr | -5.434 pp | 0.0000 |
-| IV600 vs PVStand | -6.032 pp | 0.0000 |
-| IV600 vs PVStand corr | -5.194 pp | 0.0000 |
-| IV600 corr vs PVStand | -6.998 pp | 0.0000 |
-| IV600 corr vs PVStand corr | -6.159 pp | 0.0000 |
-| PVStand vs RefCells | 6.744 pp | 0.0000 |
-| PVStand vs Soiling Kit | 6.248 pp | 0.0000 |
-| PVStand corr vs RefCells | 5.905 pp | 0.0000 |
-| PVStand corr vs Soiling Kit | 5.410 pp | 0.0000 |
+| DustIQ vs PVStand | -8.322 pp | 0.0000 |
+| DustIQ vs PVStand corr | -7.046 pp | 0.0000 |
+| IV600 vs PVStand | -8.107 pp | 0.0000 |
+| IV600 vs PVStand corr | -6.831 pp | 0.0000 |
+| IV600 corr vs PVStand | -9.072 pp | 0.0000 |
+| IV600 corr vs PVStand corr | -7.796 pp | 0.0000 |
+| PVStand vs PVStand corr | 1.276 pp | 0.0111 |
+| PVStand vs RefCells | 8.796 pp | 0.0000 |
+| PVStand vs Soiling Kit | 8.294 pp | 0.0000 |
+| PVStand corr vs RefCells | 7.520 pp | 0.0000 |
+| PVStand corr vs Soiling Kit | 7.018 pp | 0.0000 |
 
 ### 5. Post-hoc Dunn + Bonferroni (pares significativos, p_adj < 0.05)
 
@@ -141,7 +141,7 @@
 | DustIQ vs PVStand | 0.0000 |
 | DustIQ vs PVStand corr | 0.0000 |
 | IV600 vs PVStand | 0.0000 |
-| IV600 vs PVStand corr | 0.0000 |
+| IV600 vs PVStand corr | 0.0001 |
 | IV600 corr vs PVStand | 0.0000 |
 | IV600 corr vs PVStand corr | 0.0000 |
 | PVStand vs RefCells | 0.0000 |

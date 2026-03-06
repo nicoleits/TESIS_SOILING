@@ -6,7 +6,9 @@ Gráfico de intercomparación: SR diario de todos los módulos + PV Glasses (pun
 - Líneas + markers: SR diario de Soiling Kit, DustIQ, RefCells, PVStand (Pmax e Isc), IV600 (Pmax e Isc).
 - Puntos: PV Glasses = mismos datos que pv_glasses_curva_acumulacion_por_vidrio: por (periodo, muestra) Q25(sr_q25), posicionados en fecha = ref_start + dias_ref (dias_ref como en DIAS_REFERENCIA); sin normalizar.
 
-Salida: analysis/intercomparacion_sr_diario.png
+Salida: analysis/intercomparacion_sr_diario.png y analysis/intercomparacion_sr_diario_corr.png
+
+Periodo y RefCells: usa analysis/config.py (PERIODO_ANALISIS_INICIO/FIN, REFCELLS_FECHA_MAX = última semana mayo 2025).
 
 Uso (desde TESIS_SOILING):
   python -m analysis.grafico_sr_diario_intercomparacion
@@ -19,16 +21,23 @@ import pandas as pd
 import numpy as np
 
 try:
+    from analysis.config import PERIODO_ANALISIS_INICIO, PERIODO_ANALISIS_FIN, REFCELLS_FECHA_MAX
+except ImportError:
+    PERIODO_ANALISIS_INICIO = "2024-08-03"
+    PERIODO_ANALISIS_FIN = "2025-08-04"
+    REFCELLS_FECHA_MAX = "2025-05-20"
+
+try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    from matplotlib.ticker import FuncFormatter
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
 
-# Configuración: (etiqueta, ruta relativa a project_root, columna(s) SR).
-# Solo una versión por módulo (no incluir _corr para evitar doble normalización, p. ej. IV600).
+# Configuración sin corrección por temperatura (gráfico por defecto).
 SERIES_SR = [
     ("RefCells", "analysis/sr/refcells_sr.csv", ["SR"]),
     ("DustIQ", "analysis/sr/dustiq_sr.csv", ["SR"]),
@@ -39,11 +48,22 @@ SERIES_SR = [
     ("SR Isc IV600", "analysis/sr/iv600_sr.csv", ["SR_Isc_434"]),
 ]
 
+# Configuración con corrección por temperatura (PVStand e IV600 corr; Soiling Kit sin corregir).
+SERIES_SR_CORR = [
+    ("RefCells", "analysis/sr/refcells_sr.csv", ["SR"]),
+    ("DustIQ", "analysis/sr/dustiq_sr.csv", ["SR"]),
+    ("Soiling Kit", "analysis/sr/soilingkit_sr.csv", ["SR"]),  # sin corregir
+    ("PVStand Pmax (T corr)", "analysis/sr/pvstand_sr_corr.csv", ["SR_Pmax_corr"]),
+    ("PVStand Isc (T corr)", "analysis/sr/pvstand_sr_corr.csv", ["SR_Isc_corr"]),
+    ("SR Pmax IV600 (T corr)", "analysis/sr/iv600_sr_corr.csv", ["SR_Pmax_corr_434"]),
+    ("SR Isc IV600 (T corr)", "analysis/sr/iv600_sr_corr.csv", ["SR_Isc_corr_434"]),
+]
+
 # PV Glasses: muestra -> (etiqueta, color). Colores vivos, puntos más pequeños.
 PVGLASSES_FC = {
-    "C": ("PV Glasses FC3 (Q25)", "#00C853"),
-    "B": ("PV Glasses FC4 (Q25)", "#00E5FF"),
-    "A": ("PV Glasses FC5 (Q25)", "#FFEA00"),
+    "C": ("PV Glasses FC3", "#00C853"),
+    "B": ("PV Glasses FC4", "#00E5FF"),
+    "A": ("PV Glasses FC5", "#FFEA00"),
 }
 
 # Mismo mapeo periodo -> días de referencia que en pv_glasses_calendario (curva_acumulacion_por_vidrio)
@@ -67,6 +87,10 @@ MARKERS = ["o", "*", "s", "o", "*", "s", "o"]
 MARKERSIZE = 1.5
 MARKEVERY = 1  # figurita en cada punto
 
+# Etiquetas de meses en español para el eje X
+SPANISH_MONTHS = ["ene", "feb", "mar", "abr", "may", "jun",
+                  "jul", "ago", "sep", "oct", "nov", "dic"]
+
 
 def _get_time_col(df):
     for c in df.columns:
@@ -75,11 +99,13 @@ def _get_time_col(df):
     return None
 
 
-def run(project_root=None, output_path=None):
+def run(project_root=None, output_path=None, use_corr_series=False):
     if project_root is None:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if output_path is None:
-        output_path = os.path.join(project_root, "analysis", "intercomparacion_sr_diario.png")
+        name = "intercomparacion_sr_diario_corr.png" if use_corr_series else "intercomparacion_sr_diario.png"
+        output_path = os.path.join(project_root, "analysis", name)
+    series_config = SERIES_SR_CORR if use_corr_series else SERIES_SR
     sr_dir = os.path.join(project_root, "analysis", "sr")
     pv_glasses_path = os.path.join(project_root, "analysis", "pv_glasses", "pv_glasses_por_periodo.csv")
 
@@ -98,7 +124,7 @@ def run(project_root=None, output_path=None):
     ref_start = None  # fecha de inicio para mapear dias_ref -> fecha (PV Glasses)
 
     # --- Líneas + puntos/estrellas: SR diario por módulo (normalizado: primer valor = 100%) ---
-    for label, rel_path, columns in SERIES_SR:
+    for label, rel_path, columns in series_config:
         path = os.path.join(project_root, rel_path)
         if not os.path.isfile(path):
             continue
@@ -107,7 +133,11 @@ def run(project_root=None, output_path=None):
         if not tc:
             continue
         df[tc] = pd.to_datetime(df[tc], utc=True)
-        if ref_start is None:
+        # Limitar al periodo de análisis; RefCells solo hasta última semana mayo 2025
+        t_ini = pd.Timestamp(PERIODO_ANALISIS_INICIO, tz="UTC")
+        t_fin = pd.Timestamp(REFCELLS_FECHA_MAX if label == "RefCells" else PERIODO_ANALISIS_FIN, tz="UTC")
+        df = df[(df[tc] >= t_ini) & (df[tc] <= t_fin)]
+        if ref_start is None and not df.empty:
             ref_start = df[tc].min().to_pydatetime()
         for col in columns:
             if col not in df.columns:
@@ -159,6 +189,11 @@ def run(project_root=None, output_path=None):
             if rows:
                 res = pd.DataFrame(rows)
                 res["fecha_pos"] = res["dias_ref"].apply(lambda d: ref_start + timedelta(days=d))
+                # Limitar PV Glasses al periodo de análisis
+                t_ini = pd.Timestamp(PERIODO_ANALISIS_INICIO, tz="UTC")
+                t_fin = pd.Timestamp(PERIODO_ANALISIS_FIN, tz="UTC")
+                res["fecha_pos_utc"] = pd.to_datetime(res["fecha_pos"], utc=True)
+                res = res[(res["fecha_pos_utc"] >= t_ini) & (res["fecha_pos_utc"] <= t_fin)]
                 periodos_ok = [p for p in ORDEN_PERIODO if p in res["periodo"].values]
                 res["periodo_ord"] = pd.Categorical(res["periodo"], categories=periodos_ok, ordered=True)
                 res = res.sort_values("periodo_ord")
@@ -168,18 +203,35 @@ def run(project_root=None, output_path=None):
                         continue
                     ax.scatter(
                         sub["fecha_pos"], sub["sr_q25"],
-                        c=color, s=14, alpha=0.9, edgecolors="white", linewidths=0.3,
+                        c=color, s=28, alpha=0.9, edgecolors="white", linewidths=0.3,
                         label=etiqueta, zorder=5, marker="o",
                     )
 
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-    ax.set_xlabel("Fecha")
-    ax.set_ylabel("Soiling Ratio [%]")
-    ax.set_title("Intercomparación Soiling Ratio diario")
+    ax.set_xlabel("Fecha", fontsize=12)
+    ax.set_ylabel("Soiling Ratio [%]", fontsize=12)
+    ax.set_title(
+        "Intercomparación Soiling Ratio diario (PVStand e IV600 con corrección T)"
+        if use_corr_series
+        else "Intercomparación Soiling Ratio diario",
+        fontsize=13,
+        pad=10,
+    )
     ax.set_ylim(70, 110)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+    ax.tick_params(axis="both", labelsize=11)
+
+    def _fmt_month_es(x, pos=None):
+        dt = mdates.num2date(x)
+        mes_idx = dt.month - 1
+        if 0 <= mes_idx < len(SPANISH_MONTHS):
+            mes = SPANISH_MONTHS[mes_idx]
+        else:
+            mes = dt.strftime("%b")
+        return f"{mes} {dt.year}"
+
+    ax.xaxis.set_major_formatter(FuncFormatter(_fmt_month_es))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
-    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.legend(loc="lower left", fontsize=11, ncol=2)
     ax.grid(True, alpha=0.3)
     plt.setp(ax.xaxis.get_majorticklabels(), rotation=15, ha="right")
     plt.tight_layout()
@@ -195,6 +247,7 @@ def main():
     if len(sys.argv) > 1:
         project_root = os.path.abspath(sys.argv[1])
     run(project_root=project_root)
+    run(project_root=project_root, use_corr_series=True)
 
 
 if __name__ == "__main__":

@@ -53,7 +53,7 @@ NOTAS:
 ------
 - Convertido desde download_notebook.ipynb
 - Requiere conexión a los servidores ClickHouse e InfluxDB configurados
-- Las fechas por defecto son: 01/07/2024 - 31/12/2025
+- Las fechas por defecto son: 01/08/2024 - 04/08/2025
 """
 
 # ============================================================================
@@ -106,8 +106,8 @@ CLICKHOUSE_CONFIG = {
     'password': "Psda2020"
 }
 # Configuración de fechas por defecto
-DEFAULT_START_DATE = pd.to_datetime('01/08/2024', dayfirst=True).tz_localize('UTC')
-DEFAULT_END_DATE = pd.to_datetime('31/08/2025', dayfirst=True).tz_localize('UTC')
+DEFAULT_START_DATE = pd.to_datetime('03/08/2024', dayfirst=True).tz_localize('UTC')
+DEFAULT_END_DATE = pd.to_datetime('04/08/2025', dayfirst=True).tz_localize('UTC')
 
 # Directorio de salida - datos dentro de TESIS_SOILING (no se suben a git: .gitignore con *.csv, *.png, etc.)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

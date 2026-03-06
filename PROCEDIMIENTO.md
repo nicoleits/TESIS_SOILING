@@ -39,7 +39,7 @@ La descarga se realiza desde **ClickHouse** mediante el script `download_data.py
 
 Al ejecutar el script:
 
-1. **Fechas:** Se pide fecha de inicio y fecha de fin (por defecto: 01/07/2024 – 31/12/2025). Las fechas se interpretan en UTC.
+1. **Fechas:** Se pide fecha de inicio y fecha de fin (por defecto: 03/08/2024 – 04/08/2025). Las fechas se interpretan en UTC.
 2. **Menú:** Se muestra el menú de opciones numeradas (0–13). El cálculo de SR se hace en un proceso separado.
 
 La conexión a ClickHouse usa la configuración definida en el script:

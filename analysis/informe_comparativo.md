@@ -1,13 +1,13 @@
 # Informe Comparativo: ANOVA y Correlación Cruzada entre Instrumentos de Soiling
 
 **Variable de análisis:** SR semanal Q25 normalizado (t₀ = 100%)  
-**Período:** agosto 2024 – julio 2025 (según disponibilidad por instrumento)  
+**Período:** 03/08/2024 – 04/08/2025 (sin 2 primeros días; RefCells hasta 20/05/2025, ver nota)  
 **Instrumentos:** Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600, IV600 corr  
 **Nivel de significancia:** α = 0.05  
 
 > **Nota sobre normalización:** Todos los SR se normalizaron al valor de la primera semana disponible de cada instrumento (t₀ = 100%). Esto elimina el sesgo de nivel absoluto entre instrumentos y permite comparar únicamente la **evolución temporal relativa** del soiling.
 
-> **Nota sobre RefCells:** Los datos de RefCells se limitan hasta el 18 de mayo de 2025 por problema instrumental posterior a esa fecha.
+> **Nota sobre RefCells:** Los datos de RefCells se limitan hasta el 20/05/2025 por problema instrumental posterior a esa fecha. Configuración: `REFCELLS_FECHA_MAX` en `analysis/config.py`.
 
 ---
 
@@ -15,11 +15,11 @@
 
 | Instrumento | N semanas | Media Q25 (%) | Std (pp) | CV (%) | Rango P95–P05 (pp) |
 |---|---|---|---|---|---|
-| Soiling Kit | 53 | 97.14 | 1.67 | 1.72 | 5.08 |
-| DustIQ | 53 | 96.91 | 0.94 | 0.97 | 2.85 |
-| RefCells | 36 | 97.71 | 1.33 | 1.36 | 3.38 |
-| PVStand | 53 | 88.52 | 2.52 | 2.85 | 7.55 |
-| PVStand corr | 50 | 89.44 | 2.79 | 3.12 | 8.17 |
+| Soiling Kit | 54 | 97.10 | 1.68 | 1.73 | 5.02 |
+| DustIQ | 54 | 96.89 | 0.95 | 0.98 | 2.89 |
+| RefCells | 37 | 97.65 | 1.36 | 1.40 | 3.90 |
+| PVStand | 54 | 88.50 | 2.70 | 3.05 | 7.73 |
+| PVStand corr | 50 | 89.47 | 2.90 | 3.24 | 8.17 |
 | IV600 | 30 | 96.76 | 1.16 | 1.19 | 3.41 |
 | IV600 corr | 29 | 98.07 | 1.27 | 1.29 | 3.80 |
 

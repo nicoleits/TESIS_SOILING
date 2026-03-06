@@ -20,6 +20,12 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+try:
+    from analysis.config import PERIODO_ANALISIS_INICIO, PERIODO_ANALISIS_FIN
+except ImportError:
+    PERIODO_ANALISIS_INICIO = "2024-08-03"
+    PERIODO_ANALISIS_FIN = "2025-08-04"
+
 # Umbrales (deben coincidir con download_data y align_to_soiling_kit)
 UMBRAL_ESTABILIDAD_G = 0.10  # (G_max - G_min) / G_med < 10%
 MAX_DIST_SOLAR_NOON_MIN = 50  # minutos
@@ -39,8 +45,8 @@ def _ensure_utc(series, tz_local=None):
     return series.dt.tz_convert("UTC")
 
 
-def _dias_unicos(csv_path, time_col=None):
-    """Devuelve número de días únicos en un CSV con columna de tiempo."""
+def _dias_unicos(csv_path, time_col=None, fecha_min=None, fecha_max=None):
+    """Devuelve número de días únicos en un CSV con columna de tiempo. Opcional: filtrar por fecha_min/fecha_max (str YYYY-MM-DD)."""
     if not os.path.isfile(csv_path):
         return None
     df = pd.read_csv(csv_path, nrows=100000)
@@ -50,11 +56,15 @@ def _dias_unicos(csv_path, time_col=None):
     df = pd.read_csv(csv_path)
     df[tc] = pd.to_datetime(df[tc])
     df["_date"] = df[tc].dt.date
+    if fecha_min is not None:
+        df = df[df["_date"] >= pd.to_datetime(fecha_min).date()]
+    if fecha_max is not None:
+        df = df[df["_date"] <= pd.to_datetime(fecha_max).date()]
     return df["_date"].nunique()
 
 
-def _cargar_sesiones_solar_noon(csv_path):
-    """Carga soilingkit_solar_noon.csv con ventana 5 min por día."""
+def _cargar_sesiones_solar_noon(csv_path, fecha_min=None, fecha_max=None):
+    """Carga soilingkit_solar_noon.csv con ventana 5 min por día. Opcional: filtrar por fecha_min/fecha_max (str YYYY-MM-DD)."""
     df = pd.read_csv(csv_path)
     tc = _get_time_col(df)
     if not tc:
@@ -62,6 +72,10 @@ def _cargar_sesiones_solar_noon(csv_path):
     df[tc] = pd.to_datetime(df[tc])
     df[tc] = _ensure_utc(df[tc])
     df["_date"] = df[tc].dt.date
+    if fecha_min is not None:
+        df = df[df["_date"] >= pd.to_datetime(fecha_min).date()]
+    if fecha_max is not None:
+        df = df[df["_date"] <= pd.to_datetime(fecha_max).date()]
     df["_center"] = df[tc]
     df["_bin_start"] = df["_center"].dt.floor("5min")
     df["_bin_end"] = df["_bin_start"] + pd.Timedelta(minutes=5)
@@ -117,15 +131,20 @@ def run_analisis_qaqc(data_dir, output_dir=None):
     soiling_aligned = os.path.join(data_dir, "soilingkit", "soilingkit_aligned_solar_noon.csv")
     solys2_ref = os.path.join(data_dir, "solys2", "solys2_poa_500_clear_sky.csv")
 
-    # --- Embudo de días ---
-    n_iniciales = _dias_unicos(soiling_raw)
+    # Periodo de análisis (mismo que el resto del proyecto)
+    fecha_min = PERIODO_ANALISIS_INICIO
+    fecha_max = PERIODO_ANALISIS_FIN
+    logger.info("Periodo de análisis: %s — %s", fecha_min, fecha_max)
+
+    # --- Embudo de días (solo dentro del periodo) ---
+    n_iniciales = _dias_unicos(soiling_raw, fecha_min=fecha_min, fecha_max=fecha_max)
     if n_iniciales is None:
-        n_iniciales = _dias_unicos(soiling_poa)
+        n_iniciales = _dias_unicos(soiling_poa, fecha_min=fecha_min, fecha_max=fecha_max)
         etapa_inicial = "días con datos Soiling Kit (tras POA/clear-sky)*"
     else:
         etapa_inicial = "días con datos Soiling Kit (raw)"
 
-    n_tras_irradiancia = _dias_unicos(soiling_poa)
+    n_tras_irradiancia = _dias_unicos(soiling_poa, fecha_min=fecha_min, fecha_max=fecha_max)
     if n_tras_irradiancia is None:
         logger.warning("No se encuentra soilingkit_poa_500_clear_sky; no se puede calcular embudo.")
         return False
@@ -133,10 +152,17 @@ def run_analisis_qaqc(data_dir, output_dir=None):
     df_solar = pd.read_csv(soiling_solar)
     tc = _get_time_col(df_solar)
     df_solar[tc] = pd.to_datetime(df_solar[tc])
-    n_tras_mediodia = len(df_solar)
+    df_solar["_date"] = df_solar[tc].dt.date
+    df_solar = df_solar[(df_solar["_date"] >= pd.to_datetime(fecha_min).date()) & (df_solar["_date"] <= pd.to_datetime(fecha_max).date())]
+    n_tras_mediodia = df_solar["_date"].nunique() if "_date" in df_solar.columns else len(df_solar)
 
     df_aligned = pd.read_csv(soiling_aligned)
-    n_tras_estabilidad = len(df_aligned)
+    tc_a = _get_time_col(df_aligned)
+    if tc_a:
+        df_aligned[tc_a] = pd.to_datetime(df_aligned[tc_a])
+        df_aligned["_date"] = df_aligned[tc_a].dt.date
+        df_aligned = df_aligned[(df_aligned["_date"] >= pd.to_datetime(fecha_min).date()) & (df_aligned["_date"] <= pd.to_datetime(fecha_max).date())]
+    n_tras_estabilidad = df_aligned["_date"].nunique() if "_date" in df_aligned.columns else len(df_aligned)
     n_finales = n_tras_estabilidad
 
     # Si no teníamos raw, primera fila del embudo = días tras irradiancia
@@ -162,6 +188,7 @@ def run_analisis_qaqc(data_dir, output_dir=None):
     path_embudo_md = os.path.join(output_dir, "qaqc_embudo_dias.md")
     with open(path_embudo_md, "w", encoding="utf-8") as f:
         f.write("# Efecto del QA/QC: embudo de días\n\n")
+        f.write(f"**Periodo de análisis:** {fecha_min} — {fecha_max} (mismo que en `analysis/config.py`).\n\n")
         f.write("| Etapa | Descripción | Días | Días perdidos respecto a la etapa anterior |\n")
         f.write("|-------|-------------|------|------------------------------------------|\n")
         for idx, r in embudo.iterrows():
@@ -194,8 +221,8 @@ def run_analisis_qaqc(data_dir, output_dir=None):
         except Exception as e:
             logger.warning("No se pudo generar figura dist_solar_noon_min: %s", e)
 
-    # --- Indicador de estabilidad por día (todas las sesiones) ---
-    sesiones = _cargar_sesiones_solar_noon(soiling_solar)
+    # --- Indicador de estabilidad por día (sesiones dentro del periodo) ---
+    sesiones = _cargar_sesiones_solar_noon(soiling_solar, fecha_min=fecha_min, fecha_max=fecha_max)
     df_estab = _estabilidad_por_dia(solys2_ref, sesiones)
     if df_estab.empty:
         logger.warning("No se pudo calcular indicador de estabilidad por día.")

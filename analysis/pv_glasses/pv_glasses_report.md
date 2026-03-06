@@ -19,6 +19,16 @@ es decir, los días en que el vidrio sucio está efectivamente sobre la fotoceld
 | 1 año | 365 | 3 | 80.28 | 19.72 | 3.84 |
 
 ---
+## 1b. Correlación SR Q25 vs masa depositada (mg/cm²)
+
+Objetivo del método: correlacionar pérdidas ópticas con masa acumulada.  
+Masa por unidad de área (mg/cm²) es la métrica estándar en literatura para comparar deposición.  
+- **R²** = 0.833  
+- **Pendiente** = -13.9355 %/(mg/cm²) (regresión lineal SR Q25 vs masa/área)  
+- N puntos (vidrio × período): 82  
+
+
+---
 ## 2. Observaciones clave
 
 - **Tasa de acumulación lineal:** -0.0443 pp/día (16.18 pp/año estimados)

@@ -16,9 +16,11 @@ Uso (desde TESIS_SOILING/):
 
 Salidas en analysis/pv_glasses/:
   pv_glasses_por_periodo.csv     SR Q25 por cada medición de cada vidrio
+  pv_glasses_largo.csv           Una fila por vidrio×período: periodo, vidrio, dias_exposicion, delta_m_mg, rho_m_mg_cm2, sr_q25
   pv_glasses_resumen.csv         Q25 medio por tipo de período
   pv_glasses_sr_vs_dias.png
   pv_glasses_sr_por_periodo.png
+  pv_glasses_sr_vs_masa_area.png  SR Q25 vs masa/área (mg/cm²), R² y pendiente
   pv_glasses_curva_acumulacion.png
   pv_glasses_report.md
 """
@@ -86,6 +88,10 @@ SOLAR_NOON_HORA_FIN_UTC = 17
 
 # Umbral mínimo de irradiancia REF para calcular SR (W/m²)
 MIN_REF_THRESHOLD = 200.0
+
+# Área expuesta del vidrio (cm²): 4 × 3 cm. En literatura la masa por unidad de área (mg/cm²)
+# es la métrica estándar para comparar deposición entre sitios y métodos.
+AREA_VIDRIO_CM2 = 12.0  # 4 × 3 cm
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +163,116 @@ def cargar_datos_poa(poa_csv):
     return df[["fecha", "R_FC2_Avg", "SR_R_FC3", "SR_R_FC4", "SR_R_FC5"]]
 
 
+# Mapeo Period (tabla oficial) → periodo (interno)
+PERIOD_MAP_OFICIAL = {
+    "Weekly": "semanal",
+    "2 weeks": "2 semanas",
+    "Monthly": "Mensual",
+    "Quarterly": "Trimestral",
+    "4-Monthly": "Cuatrimestral",
+    "Semiannual": "Semestral",
+    "1 Year": "1 año",
+}
+
+
+def cargar_tabla_oficial_masas(path, area_cm2=None):
+    """
+    Carga tabla_oficial_masas.csv y devuelve DataFrame en formato largo:
+    periodo, dias_exposicion, muestra, delta_m_g, masa_inicial_g, masa_final_g.
+    delta_m_g en g (Diff_X_mg/1000); si Diff < 0 se reporta 0 (coherente con pipeline).
+    """
+    if area_cm2 is None:
+        area_cm2 = AREA_VIDRIO_CM2
+    if not os.path.isfile(path):
+        return pd.DataFrame()
+    try:
+        df = pd.read_csv(path)
+    except Exception as e:
+        logger.warning("No se pudo cargar tabla oficial de masas: %s", e)
+        return pd.DataFrame()
+    required = ["Period", "Exposition_days", "Diff_A_mg", "Diff_B_mg", "Diff_C_mg"]
+    if not all(c in df.columns for c in required):
+        logger.warning("Tabla oficial de masas: faltan columnas %s", required)
+        return pd.DataFrame()
+    df["periodo"] = df["Period"].map(PERIOD_MAP_OFICIAL)
+    df = df.dropna(subset=["periodo"])
+    df["dias_exposicion"] = pd.to_numeric(df["Exposition_days"], errors="coerce").astype("Int64")
+    rows = []
+    for _, r in df.iterrows():
+        for muestra, col_diff, col_soil, col_clean in [
+            ("A", "Diff_A_mg", "Mass_A_Soiled_g", "Mass_A_Clean_g"),
+            ("B", "Diff_B_mg", "Mass_B_Soiled_g", "Mass_B_Clean_g"),
+            ("C", "Diff_C_mg", "Mass_C_Soiled_g", "Mass_C_Clean_g"),
+        ]:
+            diff_mg = pd.to_numeric(r.get(col_diff), errors="coerce")
+            if pd.isna(diff_mg):
+                continue
+            delta_g = float(diff_mg) / 1000.0
+            if delta_g < 0:
+                delta_g = 0.0  # acumulación no negativa (coherente con pipeline)
+            masa_s = r.get(col_soil)
+            masa_c = r.get(col_clean)
+            masa_s = pd.to_numeric(masa_s, errors="coerce") if masa_s is not None else np.nan
+            masa_c = pd.to_numeric(masa_c, errors="coerce") if masa_c is not None else np.nan
+            if pd.notna(masa_s) and masa_s < 0.01:
+                continue  # muestra ausente
+            rows.append({
+                "periodo": r["periodo"],
+                "dias_exposicion": r["dias_exposicion"],
+                "muestra": muestra,
+                "delta_m_g": round(delta_g, 6),
+                "masa_inicial_g": masa_c if pd.notna(masa_c) and masa_c >= 0.01 else np.nan,
+                "masa_final_g": masa_s if pd.notna(masa_s) else np.nan,
+            })
+    if not rows:
+        return pd.DataFrame()
+    out = pd.DataFrame(rows)
+    out["periodo_ord"] = pd.Categorical(out["periodo"], categories=ORDEN_PERIODO, ordered=True)
+    out = out.sort_values(["periodo_ord", "dias_exposicion", "muestra"]).reset_index(drop=True)
+    out["_merge_idx"] = out.groupby(["periodo", "dias_exposicion", "muestra"]).cumcount()
+    logger.info("Tabla oficial de masas cargada: %d filas (desde %s)", len(out), path)
+    return out
+
+
+def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
+    """
+    Escribe resultados_diferencias_masas.csv en formato esperado por dispersion_masas
+    y grafico_promedio_soiling_por_periodo (Periodo, Diferencia_Masa_*_mg, Masa_*_Soiled/Clean_g).
+    Una fila por evento; diferencias negativas se exportan como 0 (coherente con pipeline).
+    """
+    if not os.path.isfile(path_oficial):
+        return
+    try:
+        df = pd.read_csv(path_oficial)
+    except Exception as e:
+        logger.warning("No se pudo leer tabla oficial para exportar resultados: %s", e)
+        return
+    required = ["Period", "Exposition_days", "Diff_A_mg", "Diff_B_mg", "Diff_C_mg"]
+    if not all(c in df.columns for c in required):
+        return
+    out = pd.DataFrame()
+    out["Periodo"] = df["Period"].map(PERIOD_MAP_OFICIAL)
+    out["Exposicion_dias"] = pd.to_numeric(df["Exposition_days"], errors="coerce").astype("Int64")
+    for letter, col in [("A", "Diff_A_mg"), ("B", "Diff_B_mg"), ("C", "Diff_C_mg")]:
+        vals = pd.to_numeric(df[col], errors="coerce")
+        out[f"Diferencia_Masa_{letter}_mg"] = np.maximum(vals.fillna(0), 0)
+    for orig, dest in [
+        ("Mass_A_Soiled_g", "Masa_A_Soiled_g"), ("Mass_A_Clean_g", "Masa_A_Clean_g"),
+        ("Mass_B_Soiled_g", "Masa_B_Soiled_g"), ("Mass_B_Clean_g", "Masa_B_Clean_g"),
+        ("Mass_C_Soiled_g", "Masa_C_Soiled_g"), ("Mass_C_Clean_g", "Masa_C_Clean_g"),
+    ]:
+        if orig in df.columns:
+            out[dest] = pd.to_numeric(df[orig], errors="coerce")
+    out = out.dropna(subset=["Periodo"])
+    path_csv = os.path.join(out_dir, "resultados_diferencias_masas.csv")
+    out.to_csv(path_csv, index=False)
+    logger.info("Resultados diferencias masas (desde tabla oficial): %s", path_csv)
+    verif_dir = os.path.join(out_dir, "verificacion")
+    os.makedirs(verif_dir, exist_ok=True)
+    path_verif = os.path.join(verif_dir, "resultados_diferencias_masas.csv")
+    out.to_csv(path_verif, index=False)
+
+
 # ---------------------------------------------------------------------------
 # Acumulación de masa (Δm = masa final − masa inicial por exposición)
 # ---------------------------------------------------------------------------
@@ -165,15 +281,12 @@ def calcular_acumulacion_masa(cal):
     """
     Acumulación de masa Δm = masa_final (soiled) − masa_inicial (clean) por exposición.
 
-    Regla de emparejamiento (para consistencia):
+    Regla de emparejamiento:
     - La fila 'RC a Fija, clean' con Fin Exposicion = F indica que ese día F se pesaron
       los vidrios limpios (tras una exposición que terminó ese día).
-    - Esos mismos vidrios suelen ir a la siguiente exposición **corta** (la que vuelve antes).
-    - Por tanto asignamos esa masa inicial solo al evento 'Fija a RC, soiled' con Inicio = F
-      que tiene el **menor Fin Exposicion** (vuelve antes). El resto de eventos con mismo
-      Inicio = F (p. ej. Semestral) no usan esa masa inicial → Δm = NaN.
-    Así evitamos emparejar la misma masa inicial con exposiciones largas que corresponden
-    a otro set de vidrios.
+    - Esa masa inicial se asigna a **todos** los eventos 'Fija a RC, soiled' cuyo
+      Inicio Exposición = F (mismo día de salida). Así semanal, semestral, etc. que
+      comparten fecha de inicio usan la misma masa inicial y todos tienen Δm.
     """
     llegadas = cal[
         (cal["Estructura"] == "Fija a RC") & (cal["Estado"] == "soiled")
@@ -189,21 +302,6 @@ def calcular_acumulacion_masa(cal):
     clean_salidas = clean_salidas.drop_duplicates(subset=["Fin Exposicion"], keep="first")
     clean_por_fin = clean_salidas.set_index("Fin Exposicion")
 
-    # Para cada Fin (fecha de pesada clean), decidir a qué evento (inicio, fin, periodo) asignarla:
-    # solo al evento con Inicio = Fin que tiene el menor Fin Exposicion (vuelve antes).
-    llegadas["_fin"] = llegadas["Fin Exposicion"]
-    llegadas["_inicio"] = llegadas["Inicio Exposición"]
-    # Eventos que SÍ reciben masa inicial: por cada inicio_exp, el que tiene fin_llegada mínimo
-    asignar_clean = set()
-    for inicio_exp, grupo in llegadas.groupby("Inicio Exposición"):
-        if inicio_exp not in clean_por_fin.index:
-            continue
-        # De los que empezaron ese día, el que termina antes (menor Fin Exposicion)
-        fin_primero = grupo["Fin Exposicion"].min()
-        sub = grupo[grupo["Fin Exposicion"] == fin_primero]
-        for _, r in sub.iterrows():
-            asignar_clean.add((r["Inicio Exposición"], r["Fin Exposicion"], r["Periodo"]))
-
     rows = []
     for _, lle in llegadas.iterrows():
         inicio_exp = lle["Inicio Exposición"]
@@ -211,9 +309,9 @@ def calcular_acumulacion_masa(cal):
         periodo = lle["Periodo"]
         dias = int(lle["Exposición"]) if pd.notna(lle["Exposición"]) else np.nan
         mf_a, mf_b, mf_c = float(lle["Masa A"]), float(lle["Masa B"]), float(lle["Masa C"])
-        usa_clean = (inicio_exp, fin_llegada, periodo) in asignar_clean
+        usa_clean = inicio_exp in clean_por_fin.index
 
-        if not usa_clean or inicio_exp not in clean_por_fin.index:
+        if not usa_clean:
             for muestra, mf in [("A", mf_a), ("B", mf_b), ("C", mf_c)]:
                 if mf >= 0.01:
                     rows.append({
@@ -258,7 +356,7 @@ def calcular_acumulacion_masa(cal):
         df["periodo_ord"] = pd.Categorical(df["periodo"], categories=ORDEN_PERIODO, ordered=True)
         df = df.sort_values(["periodo_ord", "fecha_llegada", "muestra"]).reset_index(drop=True)
         n_con_delta = df["delta_m_g"].notna().sum()
-        logger.info("Acumulación de masa: %d filas con Δm (de %d); emparejamiento solo al evento que vuelve primero por Inicio.", n_con_delta, len(df))
+        logger.info("Acumulación de masa: %d filas con Δm (de %d); misma masa inicial por Inicio Exposición.", n_con_delta, len(df))
     return df
 
 
@@ -431,7 +529,7 @@ def grafico_sr_vs_dias(df_res, out_path):
 
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("Días de exposición acumulados")
-    ax.set_ylabel("SR Q25 en ventana de fotocelda (%)")
+    ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — SR Q25 vs Días de exposición")
     ax.legend(fontsize=8)
     ax.grid(True, alpha=0.3)
@@ -473,7 +571,7 @@ def grafico_sr_por_periodo(df_res, df_resumen, out_path):
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xticks(posiciones)
     ax.set_xticklabels(periodos_presentes, rotation=20, ha="right", fontsize=9)
-    ax.set_ylabel("SR Q25 en ventana de fotocelda (%)")
+    ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — SR Q25 por período de exposición")
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:3], labels[:3], fontsize=8, loc="lower left")
@@ -551,7 +649,7 @@ def grafico_sr_por_periodo_cajas_por_vidrio(df_res, out_path):
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xticks(posiciones_xtick)
     ax.set_xticklabels(periodos_presentes, rotation=20, ha="right", fontsize=9)
-    ax.set_ylabel("SR Q25 en ventana de fotocelda (%)")
+    ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — SR Q25 por período de exposición (caja por vidrio)")
     ax.set_ylim(ymin, 105)
     ax.grid(True, axis="y", alpha=0.3)
@@ -627,19 +725,27 @@ def grafico_sr_por_vidrio(df_res, out_path):
 
 
 def grafico_curva_acumulacion(df_resumen, out_path):
-    df = df_resumen.dropna(subset=["dias_ref", "sr_q25"])
+    """Curva de acumulación (promedio por período: SR Q25 vs días ref). Guarda CSV con los datos."""
+    df = df_resumen.dropna(subset=["dias_ref", "sr_q25"]).copy()
     if df.empty:
         return
+    # CSV con la info del gráfico (periodo, dias_ref, n_mediciones, sr_q25, sr_std, etc.)
+    csv_path = out_path.replace(".png", ".csv")
+    cols_csv = [c for c in ["periodo", "dias_ref", "n_mediciones", "sr_q25", "sr_std", "sr_mediana", "sr_media", "perdida_pct"] if c in df.columns]
+    df[cols_csv].to_csv(csv_path, index=False)
+    logger.info("CSV curva acumulación (promedio): %s", csv_path)
+
     fig, ax = plt.subplots(figsize=(10, 5))
     ax.errorbar(df["dias_ref"], df["sr_q25"],
                 yerr=df["sr_std"].fillna(0),
                 fmt="o-", color="#1f77b4", linewidth=1.5,
                 markersize=7, capsize=4, capthick=1.5,
                 label="SR Q25 ± std")
-    for _, row in df.iterrows():
+    for i, (_, row) in enumerate(df.iterrows()):
+        dy = 8 if i % 2 == 0 else -10
         ax.annotate(row["periodo"],
                     (row["dias_ref"], row["sr_q25"]),
-                    textcoords="offset points", xytext=(5, 5), fontsize=7)
+                    textcoords="offset points", xytext=(5, dy), fontsize=7)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("Días de exposición de referencia")
     ax.set_ylabel("SR Q25 (%)")
@@ -681,43 +787,44 @@ def grafico_curva_acumulacion_por_vidrio(df_res, out_path):
         return
     res = pd.DataFrame(rows)
 
-    colors_m = {"A": "#E53935", "B": "#1E88E5", "C": "#43A047"}
-    titulos = {"A": "Vidrio A (FC5)", "B": "Vidrio B (FC4)", "C": "Vidrio C (FC3)"}
+    # CSV con los datos del gráfico (periodo, vidrio, dias_ref, sr_q25, sr_std)
+    csv_path = out_path.replace(".png", ".csv")
+    res.to_csv(csv_path, index=False)
+    logger.info("CSV curva acumulación por vidrio: %s", csv_path)
 
-    fig, axes = plt.subplots(1, 3, figsize=(14, 5))
+    colors_m = {"A": "#E53935", "B": "#1E88E5", "C": "#43A047"}
+    markers_m = {"A": "o", "B": "s", "C": "^"}
+    labels_m = {"A": "Vidrio A (FC5)", "B": "Vidrio B (FC4)", "C": "Vidrio C (FC3)"}
+
+    fig, ax = plt.subplots(figsize=(9, 6))
     ymin = 78
-    for col, muestra in enumerate(["A", "B", "C"]):
-        ax = axes[col]
+    for muestra in ["A", "B", "C"]:
         sub = res[res["muestra"] == muestra].sort_values("dias_ref")
         if sub.empty:
-            ax.set_title(titulos[muestra])
-            ax.set_visible(True)
             continue
         ax.errorbar(
             sub["dias_ref"], sub["sr_q25"],
             yerr=sub["sr_std"].fillna(0),
-            fmt="o-", color=colors_m[muestra], linewidth=1.5,
-            markersize=7, capsize=4, capthick=1.5,
-            label="SR Q25 ± std",
+            fmt=markers_m[muestra] + "-", color=colors_m[muestra], linewidth=1.5,
+            markersize=6, capsize=3, capthick=1.2,
+            label=labels_m[muestra],
         )
-        for _, row in sub.iterrows():
-            ax.annotate(
-                row["periodo"],
-                (row["dias_ref"], row["sr_q25"]),
-                textcoords="offset points", xytext=(5, 5), fontsize=7,
-            )
-        ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-        ax.set_xlabel("Días de exposición de referencia")
-        if col == 0:
-            ax.set_ylabel("SR Q25 (%)")
-        ax.set_ylim(ymin, 105)
-        ax.set_title(titulos[muestra])
-        ax.legend(fontsize=8)
-        ax.grid(True, alpha=0.3)
-    fig.suptitle(
-        "PV Glasses — Curva de acumulación de soiling por período (por vidrio)",
-        fontsize=12, fontweight="bold", y=1.02,
-    )
+    # Etiquetas de período cerca de la curva del vidrio C (más arriba)
+    sub_c = res[res["muestra"] == "C"].sort_values("dias_ref")
+    for _, row in sub_c.iterrows():
+        ax.annotate(
+            row["periodo"],
+            (row["dias_ref"], row["sr_q25"]),
+            textcoords="offset points", xytext=(6, 6), fontsize=8, color="#1a1a1a",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0),
+        )
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_ylabel("SR Q25 (%)")
+    ax.set_ylim(ymin, 105)
+    ax.set_title("PV Glasses — Curva de acumulación de soiling por período (por vidrio)")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
@@ -1142,6 +1249,150 @@ def guardar_resumen_acumulacion_masa(df_res, out_dir):
     logger.info("Resumen acumulación masa: %s", md_path)
 
 
+def guardar_tabla_rho_m_por_periodo(df_res, out_dir, area_cm2=None):
+    """
+    Tabla por período: Período, n, ρm mediana, P25, P75, Media, 1σ.
+    ρm = densidad de masa superficial (Δm/área en mg/cm²).
+    """
+    if area_cm2 is None:
+        area_cm2 = AREA_VIDRIO_CM2
+    if "delta_m_g" not in df_res.columns:
+        return
+    df_ok = df_res.dropna(subset=["delta_m_g"]).copy()
+    df_ok["rho_m_mg_cm2"] = (df_ok["delta_m_g"] * 1000.0) / area_cm2
+    if df_ok.empty:
+        return
+    periodos_presentes = [p for p in ORDEN_PERIODO if p in df_ok["periodo"].values]
+    rows = []
+    for periodo in periodos_presentes:
+        vals = df_ok[df_ok["periodo"] == periodo]["rho_m_mg_cm2"]
+        if vals.empty:
+            continue
+        n = len(vals)
+        mediana = round(vals.median(), 4)
+        p25 = round(vals.quantile(0.25), 4)
+        p75 = round(vals.quantile(0.75), 4)
+        media = round(vals.mean(), 4)
+        sigma = round(vals.std(), 4) if n > 1 else 0.0
+        rows.append({
+            "Periodo": periodo,
+            "n": n,
+            "rho_m_mediana": mediana,
+            "P25": p25,
+            "P75": p75,
+            "Media": media,
+            "1sigma": sigma,
+        })
+    if not rows:
+        return
+    res = pd.DataFrame(rows)
+    csv_path = os.path.join(out_dir, "pv_glasses_rho_m_por_periodo.csv")
+    res.to_csv(csv_path, index=False)
+    md_path = os.path.join(out_dir, "pv_glasses_rho_m_por_periodo.md")
+    lines = [
+        "# PV Glasses — Densidad de masa superficial ρm (mg/cm²) por período",
+        "",
+        "ρm = Δm / área (Δm en mg, área = 12 cm²). Un valor por vidrio × evento en cada período.",
+        "",
+        "| Período | n | ρm mediana | P25 | P75 | Media | 1σ |",
+        "|---------|---|------------|-----|-----|-------|-----|",
+    ]
+    for _, r in res.iterrows():
+        lines.append(
+            f"| {r['Periodo']} | {int(r['n'])} | {r['rho_m_mediana']:.4f} | "
+            f"{r['P25']:.4f} | {r['P75']:.4f} | {r['Media']:.4f} | {r['1sigma']:.4f} |"
+        )
+    lines += ["", ""]
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    logger.info("Tabla ρm por período: %s", csv_path)
+
+
+def guardar_carpeta_verificacion(df_acum, df_res, out_dir, area_cm2=None):
+    """
+    Crea la carpeta verificacion/ con:
+    - masas_originales_con_periodos.csv: masas y periodos usados (fuente de Δm)
+    - datos_procesados_rho.csv: datos intermedios con Δm y ρm
+    - estadisticos_rho_m_por_periodo.csv / .md: análisis estadístico de ρm por período
+    - README.md: descripción para verificación manual
+    """
+    if area_cm2 is None:
+        area_cm2 = AREA_VIDRIO_CM2
+    verif_dir = os.path.join(out_dir, "verificacion")
+    os.makedirs(verif_dir, exist_ok=True)
+
+    # 1) Masas originales con periodos (desde df_acum o desde df_res si se usó tabla oficial)
+    cols_orig = ["fecha_llegada", "inicio_exposicion", "periodo", "dias_exposicion",
+                 "muestra", "masa_inicial_g", "masa_final_g", "delta_m_g"]
+    if not df_acum.empty:
+        df_orig = df_acum[[c for c in cols_orig if c in df_acum.columns]].copy()
+    elif "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any():
+        df_orig = df_res[[c for c in cols_orig if c in df_res.columns]].copy()
+        if "inicio_exposicion" not in df_orig.columns and "fecha_llegada" in df_orig.columns:
+            df_orig["inicio_exposicion"] = np.nan
+    else:
+        df_orig = pd.DataFrame()
+    if not df_orig.empty:
+        df_orig = df_orig.sort_values(["periodo", "fecha_llegada", "muestra"]).reset_index(drop=True)
+        path_orig = os.path.join(verif_dir, "masas_originales_con_periodos.csv")
+        df_orig.to_csv(path_orig, index=False)
+        logger.info("Verificación — masas originales: %s", path_orig)
+
+    # 2) Datos procesados: cada fila (periodo × vidrio × evento) con Δm y ρm
+    if "delta_m_g" in df_res.columns:
+        df_proc = df_res.dropna(subset=["delta_m_g"]).copy()
+        if not df_proc.empty:
+            df_proc["rho_m_mg_cm2"] = (df_proc["delta_m_g"] * 1000.0) / area_cm2
+            cols_proc = ["periodo", "fecha_llegada", "muestra", "dias_exposicion",
+                         "delta_m_g", "rho_m_mg_cm2"]
+            if "sr_q25" in df_proc.columns:
+                cols_proc.append("sr_q25")
+            df_proc = df_proc[[c for c in cols_proc if c in df_proc.columns]]
+            df_proc = df_proc.sort_values(["periodo", "fecha_llegada", "muestra"]).reset_index(drop=True)
+            path_proc = os.path.join(verif_dir, "datos_procesados_rho.csv")
+            df_proc.to_csv(path_proc, index=False)
+            logger.info("Verificación — datos procesados ρm: %s", path_proc)
+
+        # 3) Estadísticos ρm por período (misma tabla que la principal)
+        guardar_tabla_rho_m_por_periodo(df_res, verif_dir, area_cm2=area_cm2)
+        # Renombrar a nombres más descriptivos en la carpeta de verificación
+        for old, new in [
+            ("pv_glasses_rho_m_por_periodo.csv", "estadisticos_rho_m_por_periodo.csv"),
+            ("pv_glasses_rho_m_por_periodo.md", "estadisticos_rho_m_por_periodo.md"),
+        ]:
+            old_path = os.path.join(verif_dir, old)
+            new_path = os.path.join(verif_dir, new)
+            if os.path.isfile(old_path) and old_path != new_path:
+                os.rename(old_path, new_path)
+
+    # 4) README de la carpeta
+    readme_path = os.path.join(verif_dir, "README.md")
+    readme_lines = [
+        "# Verificación de datos — ρm (densidad de masa superficial)",
+        "",
+        "Esta carpeta reúne los datos necesarios para comprobar que se usan las masas y períodos correctos,",
+        "y que el cálculo de ρm y los estadísticos son coherentes.",
+        "",
+        "## Archivos",
+        "",
+        "| Archivo | Descripción |",
+        "|---------|-------------|",
+        "| **masas_originales_con_periodos.csv** | Masas por vidrio y período de exposición usadas en el pipeline. `masa_inicial_g` = masa limpia (referencia del ciclo), `masa_final_g` = masa al llegar (soiled), `delta_m_g` = max(0, final − inicial). Una fila por (fecha_llegada, periodo, muestra). |",
+        "| **datos_procesados_rho.csv** | Mismas filas que se usan para el gráfico SR vs ρm y para la tabla de estadísticos. Incluye `delta_m_g`, `rho_m_mg_cm2` = Δm/área (área = 12 cm²). Opcionalmente SR Q25. |",
+        "| **estadisticos_rho_m_por_periodo.csv** / **.md** | Resumen por período: n, ρm mediana, P25, P75, Media, 1σ. |",
+        "",
+        "## Cadena de verificación",
+        "",
+        "1. **Masas originales**: Revisar que `fecha_llegada`, `inicio_exposicion`, `periodo` y las masas correspondan al calendario de muestras y al emparejamiento soiled/clean que se espera.",
+        "2. **Datos procesados**: Comprobar que `rho_m_mg_cm2` = (`delta_m_g` × 1000) / área, con área = 12 cm² (4×3 cm).",
+        "3. **Estadísticos**: Comprobar que, por período, mediana/P25/P75/Media/1σ coinciden con los valores de `rho_m_mg_cm2` en *datos_procesados_rho.csv* agrupados por `periodo`.",
+        "",
+    ]
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(readme_lines))
+    logger.info("Verificación — README: %s", readme_path)
+
+
 def grafico_acumulacion_masa_por_periodo_por_vidrio(df_res, out_path):
     """Acumulación de masa Δm (g) por período, una serie por vidrio (barras)."""
     if "delta_m_g" not in df_res.columns:
@@ -1232,11 +1483,79 @@ def grafico_acumulacion_masa_vs_sr(df_res, out_path):
     logger.info("Gráfico acumulación masa vs SR: %s", out_path)
 
 
+def grafico_sr_vs_masa_area(df_res, out_path, area_cm2=None):
+    """
+    Figura clave: scatter SR Q25 vs densidad de masa superficial ρm (mg/cm²)
+    para cada vidrio y período. ρm = Δm/área. Objetivo: correlacionar pérdidas ópticas
+    con deposición. Incluye regresión lineal con R² y pendiente (descriptivo).
+    """
+    if area_cm2 is None:
+        area_cm2 = AREA_VIDRIO_CM2
+    # Eje x: siempre densidad ρm = masa/área (mg/cm²), no masa absoluta
+    use_delta = "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any()
+    if use_delta:
+        df_ok = df_res.dropna(subset=["delta_m_g", "sr_q25"]).copy()
+        df_ok["masa_area_mg_cm2"] = (df_ok["delta_m_g"] * 1000.0) / area_cm2
+    else:
+        df_ok = df_res.dropna(subset=["masa_g", "sr_q25"]).copy()
+        df_ok["masa_area_mg_cm2"] = (df_ok["masa_g"] * 1000.0) / area_cm2
+    xlabel = "Densidad de masa superficial ρm (mg/cm²)"
+    titulo_suffix = "densidad de masa superficial ρm"
+
+    if df_ok.empty:
+        logger.warning("Sin datos para SR vs masa/área.")
+        return None
+
+    x = df_ok["masa_area_mg_cm2"].values
+    y = df_ok["sr_q25"].values
+    n = len(x)
+    if n < 2:
+        logger.warning("Pocos puntos para regresión SR vs masa/área.")
+        r2, pendiente, intercept = np.nan, np.nan, np.nan
+    else:
+        coef = np.polyfit(x, y, 1)
+        pendiente, intercept = coef[0], coef[1]
+        y_pred = np.polyval(coef, x)
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+
+    colors_m = {"A": "#E53935", "B": "#1E88E5", "C": "#43A047"}
+    markers = {"A": "o", "B": "s", "C": "^"}
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for muestra, grupo in df_ok.groupby("muestra"):
+        ax.scatter(
+            grupo["masa_area_mg_cm2"], grupo["sr_q25"],
+            c=colors_m.get(muestra, "gray"), marker=markers.get(muestra, "o"),
+            s=60, alpha=0.85, label=f"Vidrio {muestra}", edgecolors="white", linewidths=0.5,
+        )
+    if n >= 2 and not np.isnan(pendiente):
+        x_line = np.linspace(x.min(), x.max(), 50)
+        ax.plot(x_line, np.polyval([pendiente, intercept], x_line), "k-", linewidth=1.5,
+                label=f"Ajuste: R² = {r2:.3f}, pendiente = {pendiente:.4f} %/(mg/cm²)")
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_ylabel("SR Q25 (%)", fontsize=11)
+    ax.set_title(f"PV Glasses — SR Q25 vs {titulo_suffix}\n(cada punto: vidrio × período; ρm = Δm/área)")
+    ax.legend(fontsize=9)
+    ax.grid(True, alpha=0.3)
+    if n >= 2 and not np.isnan(r2):
+        ax.text(0.95, 0.05, f"R² = {r2:.3f}\npendiente = {pendiente:.4f} %/(mg/cm²)",
+                transform=ax.transAxes, fontsize=10, verticalalignment="bottom",
+                horizontalalignment="right",
+                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8))
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close()
+    logger.info("Gráfico SR vs masa/área: %s", out_path)
+    return {"r2": r2, "pendiente": pendiente, "n": n} if n >= 2 else None
+
+
 # ---------------------------------------------------------------------------
 # Reporte
 # ---------------------------------------------------------------------------
 
-def generar_reporte(df_res, df_resumen, out_path):
+def generar_reporte(df_res, df_resumen, out_path, correlacion_masa_area=None):
     lines = [
         "# PV Glasses — Análisis integrado con Calendario de Muestras",
         "",
@@ -1260,6 +1579,23 @@ def generar_reporte(df_res, df_resumen, out_path):
             f"| {row['perdida_pct']:.2f} "
             f"| {row['sr_std']:.2f} |"
         )
+
+    if correlacion_masa_area and not np.isnan(correlacion_masa_area.get("r2", np.nan)):
+        r2 = correlacion_masa_area.get("r2")
+        pend = correlacion_masa_area.get("pendiente")
+        n_corr = correlacion_masa_area.get("n", 0)
+        lines += [
+            "",
+            "---",
+            "## 1b. Correlación SR Q25 vs masa depositada (mg/cm²)",
+            "",
+            "Objetivo del método: correlacionar pérdidas ópticas con masa acumulada.  ",
+            "Masa por unidad de área (mg/cm²) es la métrica estándar en literatura para comparar deposición.  ",
+            f"- **R²** = {r2:.3f}  ",
+            f"- **Pendiente** = {pend:.4f} %/(mg/cm²) (regresión lineal SR Q25 vs masa/área)  ",
+            f"- N puntos (vidrio × período): {n_corr}  ",
+            "",
+        ]
 
     lines += ["", "---", "## 2. Observaciones clave", ""]
 
@@ -1467,6 +1803,22 @@ def guardar_resumen_q25_y_mediana(df_resumen, out_dir):
     logger.info("Resumen Q25 y mediana: %s", md_path)
 
 
+def guardar_archivo_largo(df_res, out_path):
+    """
+    Archivo largo: una fila por vidrio × período con periodo, vidrio, dias_exposicion,
+    delta_m_mg, rho_m_mg_cm2 (ρm = Δm/12) y sr_q25 (el mismo que en el scatter SR vs masa/área).
+    """
+    df = df_res.copy()
+    df["vidrio"] = df["muestra"]  # A, B, C
+    df["delta_m_mg"] = np.nan
+    if "delta_m_g" in df.columns:
+        df["delta_m_mg"] = df["delta_m_g"] * 1000.0
+    df["rho_m_mg_cm2"] = df["delta_m_mg"] / AREA_VIDRIO_CM2  # NaN donde delta_m_mg es NaN
+    cols = ["periodo", "vidrio", "dias_exposicion", "delta_m_mg", "rho_m_mg_cm2", "sr_q25"]
+    df[cols].to_csv(out_path, index=False)
+    logger.info("Archivo largo (vidrio × período): %s", out_path)
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -1481,14 +1833,42 @@ def run(cal_csv, poa_csv, out_dir):
     df_res = cruzar_ventanas_sr(cal, sr_df)
     logger.info("Mediciones procesadas: %d", len(df_res))
 
-    # Acumulación de masa (Δm = masa_final - masa_inicial por exposición)
-    df_acum = calcular_acumulacion_masa(cal)
-    if not df_acum.empty:
-        merge_cols = ["fecha_llegada", "periodo", "muestra"]
-        df_res = df_res.merge(
-            df_acum[merge_cols + ["masa_inicial_g", "delta_m_g"]],
-            on=merge_cols, how="left", suffixes=("", "_acum")
-        )
+    # Acumulación de masa: prioridad a tabla oficial si existe
+    df_acum = pd.DataFrame()
+    path_oficial = os.path.join(out_dir, "verificacion", "tabla_oficial_masas.csv")
+    if not os.path.isfile(path_oficial):
+        path_oficial = os.path.join(out_dir, "tabla_oficial_masas.csv")
+    uso_oficial = False
+    if os.path.isfile(path_oficial):
+        oficial_long = cargar_tabla_oficial_masas(path_oficial)
+        if not oficial_long.empty:
+            df_res_sorted = df_res.sort_values(
+                ["periodo_ord", "dias_exposicion", "fecha_llegada", "muestra"]
+            ).reset_index(drop=True)
+            df_res_sorted["_merge_idx"] = df_res_sorted.groupby(
+                ["periodo", "dias_exposicion", "muestra"]
+            ).cumcount()
+            merge_cols = ["periodo", "dias_exposicion", "muestra", "_merge_idx"]
+            df_res = df_res_sorted.merge(
+                oficial_long[merge_cols + ["delta_m_g", "masa_inicial_g", "masa_final_g"]],
+                on=merge_cols, how="left"
+            )
+            df_res = df_res.drop(columns=["_merge_idx"], errors="ignore")
+            # Gráficos de masa (por período, vs días, vs SR) usan masa_g: rellenar con masa_final_g oficial
+            if "masa_final_g" in df_res.columns:
+                df_res["masa_g"] = df_res["masa_final_g"].combine_first(df_res["masa_g"])
+            n_oficial = df_res["delta_m_g"].notna().sum()
+            logger.info("Masas desde tabla oficial: %d filas con Δm", n_oficial)
+            uso_oficial = True
+            exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir)
+    if not uso_oficial:
+        df_acum = calcular_acumulacion_masa(cal)
+        if not df_acum.empty:
+            merge_cols = ["fecha_llegada", "periodo", "muestra"]
+            df_res = df_res.merge(
+                df_acum[merge_cols + ["masa_inicial_g", "delta_m_g"]],
+                on=merge_cols, how="left", suffixes=("", "_acum")
+            )
 
     if df_res.empty:
         logger.error("No se obtuvieron resultados.")
@@ -1509,8 +1889,10 @@ def run(cal_csv, poa_csv, out_dir):
         os.path.join(out_dir, "pv_glasses_por_periodo.csv"), index=False)
     df_resumen.drop(columns=["periodo_ord"], errors="ignore").to_csv(
         os.path.join(out_dir, "pv_glasses_resumen.csv"), index=False)
+    guardar_archivo_largo(df_res, os.path.join(out_dir, "pv_glasses_largo.csv"))
 
     # Gráficos
+    correlacion_masa_area = None
     if MATPLOTLIB_AVAILABLE:
         grafico_sr_vs_dias(
             df_res, os.path.join(out_dir, "pv_glasses_sr_vs_dias.png"))
@@ -1523,10 +1905,14 @@ def run(cal_csv, poa_csv, out_dir):
         grafico_sr_por_vidrio(
             df_res,
             os.path.join(out_dir, "pv_glasses_sr_por_vidrio.png"))
+        subdir_promedio = os.path.join(out_dir, "promedio")
+        os.makedirs(subdir_promedio, exist_ok=True)
         grafico_curva_acumulacion(
-            df_resumen, os.path.join(out_dir, "pv_glasses_curva_acumulacion.png"))
+            df_resumen, os.path.join(subdir_promedio, "pv_glasses_curva_acumulacion.png"))
+        subdir_sin_promedio = os.path.join(out_dir, "sin_promedio")
+        os.makedirs(subdir_sin_promedio, exist_ok=True)
         grafico_curva_acumulacion_por_vidrio(
-            df_res, os.path.join(out_dir, "pv_glasses_curva_acumulacion_por_vidrio.png"))
+            df_res, os.path.join(subdir_sin_promedio, "pv_glasses_curva_acumulacion_por_vidrio.png"))
         grafico_datos_detalle_por_vidrio(
             df_res, n_dias_poa,
             os.path.join(out_dir, "pv_glasses_datos_detalle_por_vidrio.png"))
@@ -1539,6 +1925,8 @@ def run(cal_csv, poa_csv, out_dir):
             df_res, os.path.join(out_dir, "pv_glasses_masa_vs_dias.png"))
         grafico_masa_vs_sr(
             df_res, os.path.join(out_dir, "pv_glasses_masa_vs_sr.png"))
+        correlacion_masa_area = grafico_sr_vs_masa_area(
+            df_res, os.path.join(out_dir, "pv_glasses_sr_vs_masa_area.png"))
         if "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any():
             grafico_acumulacion_masa_por_periodo_por_vidrio(
                 df_res, os.path.join(out_dir, "pv_glasses_acumulacion_masa_por_periodo_por_vidrio.png"))
@@ -1548,7 +1936,8 @@ def run(cal_csv, poa_csv, out_dir):
                 df_res, os.path.join(out_dir, "pv_glasses_acumulacion_masa_vs_sr.png"))
 
     generar_reporte(df_res, df_resumen,
-                    os.path.join(out_dir, "pv_glasses_report.md"))
+                    os.path.join(out_dir, "pv_glasses_report.md"),
+                    correlacion_masa_area=correlacion_masa_area)
 
     # Tablas con Q25 y mediana por vidrio y resumen por período
     guardar_tabla_sr_por_periodo_por_vidrio(df_res, out_dir)
@@ -1559,6 +1948,24 @@ def run(cal_csv, poa_csv, out_dir):
     if "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any():
         guardar_tabla_acumulacion_masa_por_periodo_por_vidrio(df_res, out_dir)
         guardar_resumen_acumulacion_masa(df_res, out_dir)
+        guardar_tabla_rho_m_por_periodo(df_res, out_dir)
+        guardar_carpeta_verificacion(df_acum, df_res, out_dir)
+    # Si se usó tabla oficial, actualizar dispersión y gráfico promedio desde resultados_diferencias_masas
+    if uso_oficial and os.path.isfile(os.path.join(out_dir, "resultados_diferencias_masas.csv")):
+        csv_masas = os.path.join(out_dir, "resultados_diferencias_masas.csv")
+        try:
+            from . import dispersion_masas
+            dispersion_masas.run(csv_path=csv_masas, out_dir=out_dir)
+        except Exception as e:
+            logger.warning("No se pudo ejecutar dispersión de masas: %s", e)
+        try:
+            from . import grafico_promedio_soiling_por_periodo
+            grafico_promedio_soiling_por_periodo.grafico_promedio_soiling_por_periodo(
+                csv_path=csv_masas,
+                output_path=os.path.join(out_dir, "pv_glasses_promedio_soiling_por_periodo.png"),
+            )
+        except Exception as e:
+            logger.warning("No se pudo generar gráfico promedio soiling: %s", e)
     return True
 
 

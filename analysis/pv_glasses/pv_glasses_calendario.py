@@ -264,6 +264,12 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
         if orig in df.columns:
             out[dest] = pd.to_numeric(df[orig], errors="coerce")
     out = out.dropna(subset=["Periodo"])
+    # Añadir incertidumbres u(Δm) y U(Δm) por vidrio (Fase 1, uncertainty/mass.py)
+    try:
+        from ..uncertainty.mass import add_uncertainty_mass
+        out = add_uncertainty_mass(out)
+    except Exception as e:
+        logger.warning("No se pudieron añadir incertidumbres de masa: %s", e)
     path_csv = os.path.join(out_dir, "resultados_diferencias_masas.csv")
     out.to_csv(path_csv, index=False)
     logger.info("Resultados diferencias masas (desde tabla oficial): %s", path_csv)
@@ -271,6 +277,15 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
     os.makedirs(verif_dir, exist_ok=True)
     path_verif = os.path.join(verif_dir, "resultados_diferencias_masas.csv")
     out.to_csv(path_verif, index=False)
+    # Copia en carpeta de resultados de incertidumbres (analysis/uncertainty/results/)
+    try:
+        unc_results_dir = os.path.join(os.path.dirname(out_dir), "uncertainty", "results")
+        os.makedirs(unc_results_dir, exist_ok=True)
+        path_unc = os.path.join(unc_results_dir, "masas_pv_glasses_con_incertidumbres.csv")
+        out.to_csv(path_unc, index=False)
+        logger.info("Resultados incertidumbres (masas): %s", path_unc)
+    except Exception as e:
+        logger.warning("No se pudo guardar copia en carpeta incertidumbres: %s", e)
 
 
 # ---------------------------------------------------------------------------

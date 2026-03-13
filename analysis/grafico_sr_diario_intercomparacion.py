@@ -28,11 +28,20 @@ except ImportError:
     REFCELLS_FECHA_MAX = "2025-05-20"
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
     from matplotlib.ticker import FuncFormatter
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False

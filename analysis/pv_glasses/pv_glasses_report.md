@@ -23,9 +23,9 @@ es decir, los días en que el vidrio sucio está efectivamente sobre la fotoceld
 
 Objetivo del método: correlacionar pérdidas ópticas con masa acumulada.  
 Masa por unidad de área (mg/cm²) es la métrica estándar en literatura para comparar deposición.  
-- **R²** = 0.833  
-- **Pendiente** = -13.9355 %/(mg/cm²) (regresión lineal SR Q25 vs masa/área)  
-- N puntos (vidrio × período): 82  
+- **R²** = 0.834  
+- **Pendiente** = -13.9880 %/(mg/cm²) (regresión lineal SR Q25 vs masa/área)  
+- N puntos (vidrio × período): 81  
 
 
 ---

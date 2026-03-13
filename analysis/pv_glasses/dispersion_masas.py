@@ -19,9 +19,18 @@ import pandas as pd
 import numpy as np
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
 except ImportError:
     plt = None
 
@@ -41,14 +50,13 @@ PERIODO_LABEL = {
 def cargar_y_preparar(csv_path):
     """Carga el CSV de diferencias y añade promedio_mg y std_entre_vidrios por fila."""
     df = pd.read_csv(csv_path)
-    for col in ["Diferencia_Masa_A_mg", "Diferencia_Masa_B_mg", "Diferencia_Masa_C_mg"]:
+    cols_masa = ["Diferencia_Masa_A_mg", "Diferencia_Masa_B_mg", "Diferencia_Masa_C_mg"]
+    for col in cols_masa:
         if col not in df.columns:
             raise ValueError(f"Falta columna: {col}")
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
-    df["promedio_mg"] = (
-        df["Diferencia_Masa_A_mg"] + df["Diferencia_Masa_B_mg"] + df["Diferencia_Masa_C_mg"]
-    ) / 3.0
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    # Promedio solo sobre vidrios con valor (NaN = excluido p. ej. Δm < 0, no contar como 0)
+    df["promedio_mg"] = df[cols_masa].mean(axis=1)
     # Dispersión entre los tres vidrios en cada fila (std de A, B, C)
     df["std_entre_vidrios_mg"] = df.apply(
         lambda r: np.nanstd([r["Diferencia_Masa_A_mg"], r["Diferencia_Masa_B_mg"], r["Diferencia_Masa_C_mg"]]),

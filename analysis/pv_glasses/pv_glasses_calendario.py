@@ -37,9 +37,18 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
@@ -177,27 +186,29 @@ PERIOD_MAP_OFICIAL = {
 
 def cargar_tabla_oficial_masas(path, area_cm2=None):
     """
-    Carga tabla_oficial_masas.csv y devuelve DataFrame en formato largo:
-    periodo, dias_exposicion, muestra, delta_m_g, masa_inicial_g, masa_final_g.
-    delta_m_g en g (Diff_X_mg/1000); si Diff < 0 se reporta 0 (coherente con pipeline).
+    Carga tabla_oficial_masas.csv y devuelve (df_valid, df_excluded).
+    - df_valid: formato largo (periodo, dias_exposicion, muestra, delta_m_g, ...) solo con Diff >= 0.
+    - df_excluded: eventos con Diff < 0 (masa sucia < masa limpia) para documentación; no se usan en análisis.
     """
     if area_cm2 is None:
         area_cm2 = AREA_VIDRIO_CM2
+    empty = pd.DataFrame()
     if not os.path.isfile(path):
-        return pd.DataFrame()
+        return empty, empty
     try:
         df = pd.read_csv(path)
     except Exception as e:
         logger.warning("No se pudo cargar tabla oficial de masas: %s", e)
-        return pd.DataFrame()
+        return empty, empty
     required = ["Period", "Exposition_days", "Diff_A_mg", "Diff_B_mg", "Diff_C_mg"]
     if not all(c in df.columns for c in required):
         logger.warning("Tabla oficial de masas: faltan columnas %s", required)
-        return pd.DataFrame()
+        return empty, empty
     df["periodo"] = df["Period"].map(PERIOD_MAP_OFICIAL)
     df = df.dropna(subset=["periodo"])
     df["dias_exposicion"] = pd.to_numeric(df["Exposition_days"], errors="coerce").astype("Int64")
     rows = []
+    rows_excluded = []
     for _, r in df.iterrows():
         for muestra, col_diff, col_soil, col_clean in [
             ("A", "Diff_A_mg", "Mass_A_Soiled_g", "Mass_A_Clean_g"),
@@ -208,14 +219,23 @@ def cargar_tabla_oficial_masas(path, area_cm2=None):
             if pd.isna(diff_mg):
                 continue
             delta_g = float(diff_mg) / 1000.0
-            if delta_g < 0:
-                delta_g = 0.0  # acumulación no negativa (coherente con pipeline)
             masa_s = r.get(col_soil)
             masa_c = r.get(col_clean)
             masa_s = pd.to_numeric(masa_s, errors="coerce") if masa_s is not None else np.nan
             masa_c = pd.to_numeric(masa_c, errors="coerce") if masa_c is not None else np.nan
             if pd.notna(masa_s) and masa_s < 0.01:
                 continue  # muestra ausente
+            if delta_g < 0:
+                rows_excluded.append({
+                    "periodo": r["periodo"],
+                    "dias_exposicion": int(r["dias_exposicion"]) if pd.notna(r["dias_exposicion"]) else np.nan,
+                    "muestra": muestra,
+                    "diff_mg": diff_mg,
+                    "masa_final_g": masa_s,
+                    "masa_inicial_g": masa_c,
+                    "motivo": "delta_negativo_masa_sucia_menor_que_limpia",
+                })
+                continue  # no añadir a resultados válidos
             rows.append({
                 "periodo": r["periodo"],
                 "dias_exposicion": r["dias_exposicion"],
@@ -224,21 +244,29 @@ def cargar_tabla_oficial_masas(path, area_cm2=None):
                 "masa_inicial_g": masa_c if pd.notna(masa_c) and masa_c >= 0.01 else np.nan,
                 "masa_final_g": masa_s if pd.notna(masa_s) else np.nan,
             })
-    if not rows:
-        return pd.DataFrame()
     out = pd.DataFrame(rows)
-    out["periodo_ord"] = pd.Categorical(out["periodo"], categories=ORDEN_PERIODO, ordered=True)
-    out = out.sort_values(["periodo_ord", "dias_exposicion", "muestra"]).reset_index(drop=True)
-    out["_merge_idx"] = out.groupby(["periodo", "dias_exposicion", "muestra"]).cumcount()
-    logger.info("Tabla oficial de masas cargada: %d filas (desde %s)", len(out), path)
-    return out
+    df_excluded = pd.DataFrame(rows_excluded)
+    if not out.empty:
+        out["periodo_ord"] = pd.Categorical(out["periodo"], categories=ORDEN_PERIODO, ordered=True)
+        out = out.sort_values(["periodo_ord", "dias_exposicion", "muestra"]).reset_index(drop=True)
+        out["_merge_idx"] = out.groupby(["periodo", "dias_exposicion", "muestra"]).cumcount()
+    if not df_excluded.empty:
+        logger.info("Tabla oficial: %d eventos excluidos (Δm < 0) documentados", len(df_excluded))
+    logger.info("Tabla oficial de masas cargada: %d filas válidas (desde %s)", len(out), path)
+    return out, df_excluded
+
+
+# Umbral (g): masa sucia por debajo = vidrio ausente en ese evento (se excluye del análisis)
+UMBRAL_MASA_VIDRIO_AUSENTE_G = 0.01
 
 
 def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
     """
     Escribe resultados_diferencias_masas.csv en formato esperado por dispersion_masas
-    y grafico_promedio_soiling_por_periodo (Periodo, Diferencia_Masa_*_mg, Masa_*_Soiled/Clean_g).
-    Una fila por evento; diferencias negativas se exportan como 0 (coherente con pipeline).
+    y grafico_promedio_soiling_por_periodo. Una fila por evento.
+    - Si Diff_*_mg < 0 (masa sucia < masa limpia): ese vidrio se deja como NaN y se documenta (delta_negativo).
+    - Si Masa_*_Soiled_g < UMBRAL_MASA_VIDRIO_AUSENTE_G: vidrio ausente en ese evento, se deja como NaN y se documenta (vidrio_ausente).
+    Δm = 0 con vidrio presente se mantiene como medición válida.
     """
     if not os.path.isfile(path_oficial):
         return
@@ -253,9 +281,24 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
     out = pd.DataFrame()
     out["Periodo"] = df["Period"].map(PERIOD_MAP_OFICIAL)
     out["Exposicion_dias"] = pd.to_numeric(df["Exposition_days"], errors="coerce").astype("Int64")
+    excluded_neg = []
     for letter, col in [("A", "Diff_A_mg"), ("B", "Diff_B_mg"), ("C", "Diff_C_mg")]:
         vals = pd.to_numeric(df[col], errors="coerce")
-        out[f"Diferencia_Masa_{letter}_mg"] = np.maximum(vals.fillna(0), 0)
+        neg = vals < 0
+        # Donde Diff < 0: NaN (excluido del análisis); donde Diff >= 0: valor
+        out[f"Diferencia_Masa_{letter}_mg"] = np.where(neg, np.nan, vals)
+        col_soil = f"Mass_{letter}_Soiled_g"
+        col_clean = f"Mass_{letter}_Clean_g"
+        for i in np.where(neg)[0]:
+            excluded_neg.append({
+                "Periodo": out.iloc[i]["Periodo"],
+                "Exposicion_dias": out.iloc[i]["Exposicion_dias"],
+                "Vidrio": letter,
+                "Diferencia_bruta_mg": vals.iloc[i],
+                "Masa_Soiled_g": df.iloc[i].get(col_soil) if col_soil in df.columns else np.nan,
+                "Masa_Clean_g": df.iloc[i].get(col_clean) if col_clean in df.columns else np.nan,
+                "motivo": "delta_negativo",
+            })
     for orig, dest in [
         ("Mass_A_Soiled_g", "Masa_A_Soiled_g"), ("Mass_A_Clean_g", "Masa_A_Clean_g"),
         ("Mass_B_Soiled_g", "Masa_B_Soiled_g"), ("Mass_B_Clean_g", "Masa_B_Clean_g"),
@@ -264,6 +307,41 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
         if orig in df.columns:
             out[dest] = pd.to_numeric(df[orig], errors="coerce")
     out = out.dropna(subset=["Periodo"])
+
+    # Vidrio ausente: Masa_*_Soiled_g < umbral → excluir esa celda (NaN) y documentar
+    excluded_ausente = []
+    for letter in ["A", "B", "C"]:
+        col_soil = f"Masa_{letter}_Soiled_g"
+        col_diff = f"Diferencia_Masa_{letter}_mg"
+        if col_soil not in out.columns or col_diff not in out.columns:
+            continue
+        masa = out[col_soil]
+        ausente = (pd.to_numeric(masa, errors="coerce") < UMBRAL_MASA_VIDRIO_AUSENTE_G) & out[col_diff].notna()
+        if ausente.any():
+            out.loc[ausente, col_diff] = np.nan
+            for i in np.where(ausente)[0]:
+                excluded_ausente.append({
+                    "Periodo": out.iloc[i]["Periodo"],
+                    "Exposicion_dias": out.iloc[i]["Exposicion_dias"],
+                    "Vidrio": letter,
+                    "Masa_Soiled_g": out.iloc[i][col_soil],
+                    "motivo": "vidrio_ausente",
+                })
+    if excluded_ausente:
+        verif_dir = os.path.join(out_dir, "verificacion")
+        os.makedirs(verif_dir, exist_ok=True)
+        path_ausente = os.path.join(verif_dir, "eventos_excluidos_masas_vidrio_ausente.csv")
+        pd.DataFrame(excluded_ausente).to_csv(path_ausente, index=False)
+        logger.info("Eventos excluidos (vidrio ausente): %d registros → %s", len(excluded_ausente), path_ausente)
+
+    excluded_rows = excluded_neg
+    if excluded_rows:
+        df_excl = pd.DataFrame(excluded_rows)
+        verif_dir = os.path.join(out_dir, "verificacion")
+        os.makedirs(verif_dir, exist_ok=True)
+        path_excl = os.path.join(verif_dir, "eventos_excluidos_masas_delta_negativo.csv")
+        df_excl.to_csv(path_excl, index=False)
+        logger.info("Eventos excluidos (Δm < 0) en export: %d registros → %s", len(df_excl), path_excl)
     # Añadir incertidumbres u(Δm) y U(Δm) por vidrio (Fase 1, uncertainty/mass.py)
     try:
         from ..uncertainty.mass import add_uncertainty_mass
@@ -284,8 +362,97 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
         path_unc = os.path.join(unc_results_dir, "masas_pv_glasses_con_incertidumbres.csv")
         out.to_csv(path_unc, index=False)
         logger.info("Resultados incertidumbres (masas): %s", path_unc)
+        # Si no se añadieron columnas u/U/ρm (p. ej. falló el import), intentar generarlas leyendo el CSV
+        if "rho_m_A_mg_cm2" not in out.columns:
+            try:
+                from ..uncertainty.mass import run as uncertainty_mass_run
+                path_csv = os.path.join(out_dir, "resultados_diferencias_masas.csv")
+                if os.path.isfile(path_csv):
+                    uncertainty_mass_run(path_csv, out_path=path_unc)
+                    logger.info("Incertidumbres u/U/ρm añadidas en: %s", path_unc)
+            except Exception as e2:
+                logger.warning(
+                    "No se pudieron añadir columnas u/U/ρm en el archivo de incertidumbres. "
+                    "Puede ejecutar: python -m analysis.uncertainty.mass %s -o %s",
+                    os.path.join(out_dir, "resultados_diferencias_masas.csv"), path_unc,
+                )
     except Exception as e:
         logger.warning("No se pudo guardar copia en carpeta incertidumbres: %s", e)
+    # Estadísticos ρm por período desde la tabla oficial (fuente única para n y estadísticos)
+    _guardar_estadisticos_rho_m_desde_tabla_oficial(out, verif_dir, out_dir=out_dir, area_cm2=None)
+
+
+def _guardar_estadisticos_rho_m_desde_tabla_oficial(out_wide, verif_dir, out_dir=None, area_cm2=None):
+    """
+    Genera estadisticos_rho_m_por_periodo.csv y .md desde la tabla oficial (fuente única).
+    Escribe en verif_dir y, si out_dir está definido, también pv_glasses_rho_m_por_periodo.csv/.md en out_dir.
+    """
+    if area_cm2 is None:
+        area_cm2 = AREA_VIDRIO_CM2
+    cols_rho = [c for c in ["rho_m_A_mg_cm2", "rho_m_B_mg_cm2", "rho_m_C_mg_cm2"] if c in out_wide.columns]
+    if cols_rho and "Periodo" in out_wide.columns:
+        long = out_wide[["Periodo"] + cols_rho].copy()
+        long = long.melt(id_vars=["Periodo"], value_vars=cols_rho, value_name="rho_m_mg_cm2")
+    else:
+        cols_diff = [c for c in ["Diferencia_Masa_A_mg", "Diferencia_Masa_B_mg", "Diferencia_Masa_C_mg"] if c in out_wide.columns]
+        if not cols_diff or "Periodo" not in out_wide.columns:
+            return
+        long = out_wide[["Periodo"] + cols_diff].copy()
+        long = long.melt(id_vars=["Periodo"], value_vars=cols_diff, value_name="delta_mg")
+        long = long.dropna(subset=["delta_mg"])
+        long["rho_m_mg_cm2"] = long["delta_mg"] / area_cm2
+        long = long[["Periodo", "rho_m_mg_cm2"]]
+    long = long.dropna(subset=["rho_m_mg_cm2"])
+    if long.empty:
+        return
+    periodos_presentes = [p for p in ORDEN_PERIODO if p in long["Periodo"].values]
+    rows = []
+    for periodo in periodos_presentes:
+        vals = long.loc[long["Periodo"] == periodo, "rho_m_mg_cm2"]
+        if vals.empty:
+            continue
+        n = len(vals)
+        mediana = round(vals.median(), 4)
+        p25 = round(vals.quantile(0.25), 4)
+        p75 = round(vals.quantile(0.75), 4)
+        media = round(vals.mean(), 4)
+        sigma = round(vals.std(), 4) if n > 1 else 0.0
+        rows.append({
+            "Periodo": periodo,
+            "n": n,
+            "rho_m_mediana": mediana,
+            "P25": p25,
+            "P75": p75,
+            "Media": media,
+            "1sigma": sigma,
+        })
+    if not rows:
+        return
+    res = pd.DataFrame(rows)
+    md_lines = [
+        "# PV Glasses — Densidad de masa superficial ρm (mg/cm²) por período",
+        "",
+        "ρm = Δm / área (Δm en mg, área = 12 cm²). Fuente: **tabla oficial de masas**.",
+        "",
+        "| Período | n | ρm mediana | P25 | P75 | Media | 1σ |",
+        "|---------|---|------------|-----|-----|-------|-----|",
+    ]
+    for _, r in res.iterrows():
+        md_lines.append(
+            f"| {r['Periodo']} | {int(r['n'])} | {r['rho_m_mediana']:.4f} | "
+            f"{r['P25']:.4f} | {r['P75']:.4f} | {r['Media']:.4f} | {r['1sigma']:.4f} |"
+        )
+    md_lines += ["", ""]
+    for dest_dir, csv_name, md_name in [
+        (verif_dir, "estadisticos_rho_m_por_periodo.csv", "estadisticos_rho_m_por_periodo.md"),
+        (out_dir, "pv_glasses_rho_m_por_periodo.csv", "pv_glasses_rho_m_por_periodo.md"),
+    ]:
+        if dest_dir is None:
+            continue
+        res.to_csv(os.path.join(dest_dir, csv_name), index=False)
+        with open(os.path.join(dest_dir, md_name), "w", encoding="utf-8") as f:
+            f.write("\n".join(md_lines))
+    logger.info("Estadísticos ρm desde tabla oficial: %s", os.path.join(verif_dir, "estadisticos_rho_m_por_periodo.csv"))
 
 
 # ---------------------------------------------------------------------------
@@ -295,13 +462,14 @@ def exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir):
 def calcular_acumulacion_masa(cal):
     """
     Acumulación de masa Δm = masa_final (soiled) − masa_inicial (clean) por exposición.
+    Devuelve (df_valid, df_excluded). Si raw < 0 (masa sucia < masa limpia) no se añade
+    la fila a resultados; se documenta en df_excluded.
 
     Regla de emparejamiento:
     - La fila 'RC a Fija, clean' con Fin Exposicion = F indica que ese día F se pesaron
       los vidrios limpios (tras una exposición que terminó ese día).
     - Esa masa inicial se asigna a **todos** los eventos 'Fija a RC, soiled' cuyo
-      Inicio Exposición = F (mismo día de salida). Así semanal, semestral, etc. que
-      comparten fecha de inicio usan la misma masa inicial y todos tienen Δm.
+      Inicio Exposición = F (mismo día de salida).
     """
     llegadas = cal[
         (cal["Estructura"] == "Fija a RC") & (cal["Estado"] == "soiled")
@@ -309,15 +477,16 @@ def calcular_acumulacion_masa(cal):
     clean_salidas = cal[
         (cal["Estructura"] == "RC a Fija") & (cal["Estado"] == "clean")
     ].copy()
+    empty = pd.DataFrame()
     if clean_salidas.empty:
         logger.warning("No hay filas 'RC a Fija, clean' en el calendario; no se puede calcular Δm.")
-        return pd.DataFrame()
+        return empty, empty
 
-    # Quitar duplicados por Fin (quedarse con la primera fila por Fin)
     clean_salidas = clean_salidas.drop_duplicates(subset=["Fin Exposicion"], keep="first")
     clean_por_fin = clean_salidas.set_index("Fin Exposicion")
 
     rows = []
+    rows_excluded = []
     for _, lle in llegadas.iterrows():
         inicio_exp = lle["Inicio Exposición"]
         fin_llegada = lle["Fin Exposicion"]
@@ -350,29 +519,53 @@ def calcular_acumulacion_masa(cal):
             if mf < 0.01:
                 continue
             if pd.isna(mi) or mi < 0.01:
-                delta = np.nan
+                rows.append({
+                    "fecha_llegada": fin_llegada,
+                    "inicio_exposicion": inicio_exp,
+                    "periodo": periodo,
+                    "dias_exposicion": dias,
+                    "muestra": muestra,
+                    "masa_inicial_g": mi if not pd.isna(mi) else np.nan,
+                    "masa_final_g": mf,
+                    "delta_m_g": np.nan,
+                })
             else:
-                # La acumulación no puede ser negativa (ruido/rotación → reportar 0)
                 raw = mf - mi
-                delta = round(max(0.0, raw), 6)
-            rows.append({
-                "fecha_llegada": fin_llegada,
-                "inicio_exposicion": inicio_exp,
-                "periodo": periodo,
-                "dias_exposicion": dias,
-                "muestra": muestra,
-                "masa_inicial_g": mi if not pd.isna(mi) else np.nan,
-                "masa_final_g": mf,
-                "delta_m_g": delta,
-            })
+                if raw < 0:
+                    rows_excluded.append({
+                        "fecha_llegada": fin_llegada,
+                        "inicio_exposicion": inicio_exp,
+                        "periodo": periodo,
+                        "dias_exposicion": dias,
+                        "muestra": muestra,
+                        "masa_final_g": mf,
+                        "masa_inicial_g": mi,
+                        "delta_bruto_g": raw,
+                        "motivo": "delta_negativo_masa_sucia_menor_que_limpia",
+                    })
+                    continue  # no añadir a resultados
+                delta = round(raw, 6)
+                rows.append({
+                    "fecha_llegada": fin_llegada,
+                    "inicio_exposicion": inicio_exp,
+                    "periodo": periodo,
+                    "dias_exposicion": dias,
+                    "muestra": muestra,
+                    "masa_inicial_g": mi,
+                    "masa_final_g": mf,
+                    "delta_m_g": delta,
+                })
 
     df = pd.DataFrame(rows)
+    df_excluded = pd.DataFrame(rows_excluded)
     if not df.empty:
         df["periodo_ord"] = pd.Categorical(df["periodo"], categories=ORDEN_PERIODO, ordered=True)
         df = df.sort_values(["periodo_ord", "fecha_llegada", "muestra"]).reset_index(drop=True)
         n_con_delta = df["delta_m_g"].notna().sum()
         logger.info("Acumulación de masa: %d filas con Δm (de %d); misma masa inicial por Inicio Exposición.", n_con_delta, len(df))
-    return df
+    if not df_excluded.empty:
+        logger.info("Acumulación: %d eventos excluidos (Δm < 0) documentados", len(df_excluded))
+    return df, df_excluded
 
 
 # ---------------------------------------------------------------------------
@@ -537,10 +730,16 @@ def grafico_sr_vs_dias(df_res, out_path):
 
     df_ok = df_res.dropna(subset=["dias_exposicion", "sr_q25"])
     if len(df_ok) >= 4:
-        z  = np.polyfit(df_ok["dias_exposicion"], df_ok["sr_q25"], 1)
+        x_ok = df_ok["dias_exposicion"].values
+        y_ok = df_ok["sr_q25"].values
+        z = np.polyfit(x_ok, y_ok, 1)
+        y_pred = np.polyval(z, x_ok)
+        ss_res = np.sum((y_ok - y_pred) ** 2)
+        ss_tot = np.sum((y_ok - y_ok.mean()) ** 2)
+        r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
         xr = np.linspace(df_ok["dias_exposicion"].min(), df_ok["dias_exposicion"].max(), 100)
         ax.plot(xr, np.polyval(z, xr), "k--", linewidth=1.2, alpha=0.6,
-                label=f"Tendencia ({z[0]:.3f} pp/día)")
+                label=f"Tendencia ({z[0]:.3f} pp/día, R² = {r2:.3f})")
 
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("Días de exposición acumulados")
@@ -771,6 +970,154 @@ def grafico_curva_acumulacion(df_resumen, out_path):
     plt.savefig(out_path, dpi=150)
     plt.close()
     logger.info("Gráfico curva acumulación: %s", out_path)
+
+
+def grafico_curva_acumulacion_incertidumbre(df_resumen, out_path):
+    """
+    Misma curva que grafico_curva_acumulacion pero con barras de error = ± U(SR) [pp]
+    (incertidumbre expandida k=2) en lugar de la desviación estándar.
+    """
+    df = df_resumen.dropna(subset=["dias_ref", "sr_q25"]).copy()
+    if df.empty:
+        return
+    try:
+        from analysis.uncertainty.propagation import u_ratio_sr_photodiodes
+        from analysis.uncertainty import constants
+    except ImportError:
+        logger.warning("No se pudo importar uncertainty; no se genera curva con incertidumbre.")
+        return
+    sr = df["sr_q25"].values
+    u_add = getattr(constants, "PV_GLASSES_U_ADD_W_M2", constants.REFCELLS_U_ADD_W_M2)
+    u_scale = getattr(constants, "PV_GLASSES_U_SCALE", constants.REFCELLS_U_SCALE)
+    k = getattr(constants, "K_COVERAGE", 2)
+    _, U_pp = u_ratio_sr_photodiodes(sr, u_add, u_scale, k=k)
+    df = df.copy()
+    df["U_SR_pp"] = U_pp
+
+    csv_path = out_path.replace(".png", ".csv")
+    cols_csv = [c for c in ["periodo", "dias_ref", "n_mediciones", "sr_q25", "U_SR_pp", "sr_mediana", "perdida_pct"] if c in df.columns]
+    df[cols_csv].to_csv(csv_path, index=False)
+    logger.info("CSV curva acumulación (incertidumbre): %s", csv_path)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.errorbar(df["dias_ref"], df["sr_q25"],
+                yerr=df["U_SR_pp"].fillna(0),
+                fmt="o-", color="#1f77b4", linewidth=1.5,
+                markersize=7, capsize=4, capthick=1.5,
+                label="SR Q25 ± U(SR) (k=2)")
+    for i, (_, row) in enumerate(df.iterrows()):
+        dy = 8 if i % 2 == 0 else -10
+        ax.annotate(row["periodo"],
+                    (row["dias_ref"], row["sr_q25"]),
+                    textcoords="offset points", xytext=(5, dy), fontsize=7)
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_ylabel("SR Q25 (%)")
+    ax.set_title("PV Glasses — Curva de acumulación de soiling por período (incertidumbre expandida)")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico curva acumulación (incertidumbre): %s", out_path)
+
+
+def grafico_curva_densidad_incertidumbre(df_res, out_path, unc_csv_path=None):
+    """
+    Curva densidad superficial ρm (mg/cm²) vs días de exposición de referencia,
+    un punto por período, con barras de error ± U(ρm) (incertidumbre expandida k=2).
+    Mismo estilo que grafico_curva_acumulacion_incertidumbre pero para ρm.
+    """
+    if "delta_m_g" not in df_res.columns:
+        return
+    df_ok = df_res.dropna(subset=["delta_m_g", "periodo"]).copy()
+    if df_ok.empty:
+        return
+    df_ok["rho_m_mg_cm2"] = (df_ok["delta_m_g"] * 1000.0) / AREA_VIDRIO_CM2
+    rows = []
+    for periodo, grupo in df_ok.groupby("periodo", observed=True):
+        dias_ref = DIAS_REFERENCIA.get(periodo, np.nan)
+        if np.isnan(dias_ref):
+            continue
+        vals = grupo["rho_m_mg_cm2"].dropna()
+        if vals.empty:
+            continue
+        rows.append({
+            "periodo": periodo,
+            "dias_ref": int(dias_ref),
+            "n": len(vals),
+            "rho_m_mediana": float(vals.median()),
+            "rho_m_std": float(vals.std()) if len(vals) > 1 else 0.0,
+        })
+    if not rows:
+        return
+    df = pd.DataFrame(rows)
+    df["periodo_ord"] = pd.Categorical(df["periodo"], categories=ORDEN_PERIODO, ordered=True)
+    df = df.sort_values("periodo_ord").reset_index(drop=True)
+
+    # Incertidumbre U(ρm): cargar desde CSV de incertidumbres si existe
+    U_col = "U_rho_m_mg_cm2"
+    df[U_col] = np.nan
+    if unc_csv_path and os.path.isfile(unc_csv_path):
+        try:
+            df_unc = pd.read_csv(unc_csv_path)
+            u_cols = [c for c in df_unc.columns if c.startswith("U_rho_m_") and c.endswith("_mg_cm2")]
+            if u_cols:
+                u_by_period = {}
+                for periodo in df["periodo"].unique():
+                    sub = df_unc[df_unc["Periodo"] == periodo]
+                    if sub.empty:
+                        u_by_period[periodo] = np.nan
+                        continue
+                    all_u = []
+                    for c in u_cols:
+                        all_u.extend(sub[c].dropna().tolist())
+                    u_by_period[periodo] = float(np.nanmax(all_u)) if all_u else np.nan
+                df[U_col] = df["periodo"].map(u_by_period)
+        except Exception as e:
+            logger.warning("No se pudo cargar incertidumbres ρm desde %s: %s", unc_csv_path, e)
+    # Si no hay U, usar std como barra
+    use_err = df[U_col].fillna(df["rho_m_std"])
+    use_err = use_err.fillna(0)
+
+    csv_path = out_path.replace(".png", ".csv")
+    cols_csv = [c for c in ["periodo", "dias_ref", "n", "rho_m_mediana", U_col, "rho_m_std"] if c in df.columns]
+    df.to_csv(csv_path, index=False)
+    logger.info("CSV curva densidad (incertidumbre): %s", csv_path)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.errorbar(df["dias_ref"], df["rho_m_mediana"],
+                yerr=use_err,
+                fmt="o-", color="#2ca02c", linewidth=1.5,
+                markersize=7, capsize=4, capthick=1.5,
+                label="ρm mediana ± U(ρm) (k=2)" if df[U_col].notna().any() else "ρm mediana ± std")
+    for i, (_, row) in enumerate(df.iterrows()):
+        # Etiqueta con S mayúscula (Semanal, etc.)
+        texto = str(row["periodo"]).capitalize()
+        # Semanal y 2 semanas están muy cerca: Semanal un poco abajo, 2 semanas un poco arriba
+        if i == 0:
+            xytext = (12, -2)
+        elif i == 1:
+            xytext = (5, -2)
+        elif i == 2:
+            # Mensual: un poco más arriba y a la izquierda
+            xytext = (0, 11)
+        else:
+            dy = 6 if i % 2 == 0 else -8
+            xytext = (5, dy)
+        ax.annotate(texto,
+                    (row["dias_ref"], row["rho_m_mediana"]),
+                    textcoords="offset points", xytext=xytext, fontsize=7)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
+    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_ylabel("Densidad superficial ρm (mg/cm²)")
+    ax.set_title("PV Glasses — Densidad superficial vs días de exposición (incertidumbre expandida)")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico curva densidad vs días (incertidumbre): %s", out_path)
 
 
 def grafico_curva_acumulacion_por_vidrio(df_res, out_path):
@@ -1323,12 +1670,13 @@ def guardar_tabla_rho_m_por_periodo(df_res, out_dir, area_cm2=None):
     logger.info("Tabla ρm por período: %s", csv_path)
 
 
-def guardar_carpeta_verificacion(df_acum, df_res, out_dir, area_cm2=None):
+def guardar_carpeta_verificacion(df_acum, df_res, out_dir, area_cm2=None, use_oficial=False):
     """
     Crea la carpeta verificacion/ con:
     - masas_originales_con_periodos.csv: masas y periodos usados (fuente de Δm)
     - datos_procesados_rho.csv: datos intermedios con Δm y ρm
     - estadisticos_rho_m_por_periodo.csv / .md: análisis estadístico de ρm por período
+      (si use_oficial=True ya se generaron desde la tabla oficial en exportar_resultados_*)
     - README.md: descripción para verificación manual
     """
     if area_cm2 is None:
@@ -1368,17 +1716,17 @@ def guardar_carpeta_verificacion(df_acum, df_res, out_dir, area_cm2=None):
             df_proc.to_csv(path_proc, index=False)
             logger.info("Verificación — datos procesados ρm: %s", path_proc)
 
-        # 3) Estadísticos ρm por período (misma tabla que la principal)
-        guardar_tabla_rho_m_por_periodo(df_res, verif_dir, area_cm2=area_cm2)
-        # Renombrar a nombres más descriptivos en la carpeta de verificación
-        for old, new in [
-            ("pv_glasses_rho_m_por_periodo.csv", "estadisticos_rho_m_por_periodo.csv"),
-            ("pv_glasses_rho_m_por_periodo.md", "estadisticos_rho_m_por_periodo.md"),
-        ]:
-            old_path = os.path.join(verif_dir, old)
-            new_path = os.path.join(verif_dir, new)
-            if os.path.isfile(old_path) and old_path != new_path:
-                os.rename(old_path, new_path)
+        # 3) Estadísticos ρm por período (si no usamos tabla oficial, se generan desde df_res)
+        if not use_oficial:
+            guardar_tabla_rho_m_por_periodo(df_res, verif_dir, area_cm2=area_cm2)
+            for old, new in [
+                ("pv_glasses_rho_m_por_periodo.csv", "estadisticos_rho_m_por_periodo.csv"),
+                ("pv_glasses_rho_m_por_periodo.md", "estadisticos_rho_m_por_periodo.md"),
+            ]:
+                old_path = os.path.join(verif_dir, old)
+                new_path = os.path.join(verif_dir, new)
+                if os.path.isfile(old_path) and old_path != new_path:
+                    os.rename(old_path, new_path)
 
     # 4) README de la carpeta
     readme_path = os.path.join(verif_dir, "README.md")
@@ -1394,7 +1742,7 @@ def guardar_carpeta_verificacion(df_acum, df_res, out_dir, area_cm2=None):
         "|---------|-------------|",
         "| **masas_originales_con_periodos.csv** | Masas por vidrio y período de exposición usadas en el pipeline. `masa_inicial_g` = masa limpia (referencia del ciclo), `masa_final_g` = masa al llegar (soiled), `delta_m_g` = max(0, final − inicial). Una fila por (fecha_llegada, periodo, muestra). |",
         "| **datos_procesados_rho.csv** | Mismas filas que se usan para el gráfico SR vs ρm y para la tabla de estadísticos. Incluye `delta_m_g`, `rho_m_mg_cm2` = Δm/área (área = 12 cm²). Opcionalmente SR Q25. |",
-        "| **estadisticos_rho_m_por_periodo.csv** / **.md** | Resumen por período: n, ρm mediana, P25, P75, Media, 1σ. |",
+        "| **estadisticos_rho_m_por_periodo.csv** / **.md** | Resumen por período: n, ρm mediana, P25, P75, Media, 1σ (fuente: tabla oficial de masas cuando está disponible). |",
         "",
         "## Cadena de verificación",
         "",
@@ -1555,8 +1903,8 @@ def grafico_sr_vs_masa_area(df_res, out_path, area_cm2=None):
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     if n >= 2 and not np.isnan(r2):
-        ax.text(0.95, 0.05, f"R² = {r2:.3f}\npendiente = {pendiente:.4f} %/(mg/cm²)",
-                transform=ax.transAxes, fontsize=10, verticalalignment="bottom",
+        ax.text(0.95, 0.95, f"R² = {r2:.3f}\npendiente = {pendiente:.4f} %/(mg/cm²)",
+                transform=ax.transAxes, fontsize=10, verticalalignment="top",
                 horizontalalignment="right",
                 bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8))
     plt.tight_layout()
@@ -1855,7 +2203,13 @@ def run(cal_csv, poa_csv, out_dir):
         path_oficial = os.path.join(out_dir, "tabla_oficial_masas.csv")
     uso_oficial = False
     if os.path.isfile(path_oficial):
-        oficial_long = cargar_tabla_oficial_masas(path_oficial)
+        oficial_long, oficial_excluded = cargar_tabla_oficial_masas(path_oficial)
+        verif_dir = os.path.join(out_dir, "verificacion")
+        os.makedirs(verif_dir, exist_ok=True)
+        if not oficial_excluded.empty:
+            path_excl = os.path.join(verif_dir, "eventos_excluidos_masas_delta_negativo.csv")
+            oficial_excluded.to_csv(path_excl, index=False)
+            logger.info("Eventos excluidos (Δm < 0): %s", path_excl)
         if not oficial_long.empty:
             df_res_sorted = df_res.sort_values(
                 ["periodo_ord", "dias_exposicion", "fecha_llegada", "muestra"]
@@ -1877,7 +2231,13 @@ def run(cal_csv, poa_csv, out_dir):
             uso_oficial = True
             exportar_resultados_diferencias_desde_oficial(path_oficial, out_dir)
     if not uso_oficial:
-        df_acum = calcular_acumulacion_masa(cal)
+        df_acum, acum_excluded = calcular_acumulacion_masa(cal)
+        if not acum_excluded.empty:
+            verif_dir = os.path.join(out_dir, "verificacion")
+            os.makedirs(verif_dir, exist_ok=True)
+            path_excl = os.path.join(verif_dir, "eventos_excluidos_masas_delta_negativo.csv")
+            acum_excluded.to_csv(path_excl, index=False)
+            logger.info("Eventos excluidos (Δm < 0) desde calendario: %s", path_excl)
         if not df_acum.empty:
             merge_cols = ["fecha_llegada", "periodo", "muestra"]
             df_res = df_res.merge(
@@ -1924,6 +2284,15 @@ def run(cal_csv, poa_csv, out_dir):
         os.makedirs(subdir_promedio, exist_ok=True)
         grafico_curva_acumulacion(
             df_resumen, os.path.join(subdir_promedio, "pv_glasses_curva_acumulacion.png"))
+        grafico_curva_acumulacion_incertidumbre(
+            df_resumen, os.path.join(subdir_promedio, "pv_glasses_curva_acumulacion_incertidumbre.png"))
+        path_unc_masas = os.path.join(os.path.dirname(out_dir), "uncertainty", "results",
+                                      "masas_pv_glasses_con_incertidumbres.csv")
+        grafico_curva_densidad_incertidumbre(
+            df_res,
+            os.path.join(subdir_promedio, "pv_glasses_curva_densidad_incertidumbre.png"),
+            unc_csv_path=path_unc_masas,
+        )
         subdir_sin_promedio = os.path.join(out_dir, "sin_promedio")
         os.makedirs(subdir_sin_promedio, exist_ok=True)
         grafico_curva_acumulacion_por_vidrio(
@@ -1963,8 +2332,9 @@ def run(cal_csv, poa_csv, out_dir):
     if "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any():
         guardar_tabla_acumulacion_masa_por_periodo_por_vidrio(df_res, out_dir)
         guardar_resumen_acumulacion_masa(df_res, out_dir)
-        guardar_tabla_rho_m_por_periodo(df_res, out_dir)
-        guardar_carpeta_verificacion(df_acum, df_res, out_dir)
+        if not uso_oficial:
+            guardar_tabla_rho_m_por_periodo(df_res, out_dir)
+        guardar_carpeta_verificacion(df_acum, df_res, out_dir, use_oficial=uso_oficial)
     # Si se usó tabla oficial, actualizar dispersión y gráfico promedio desde resultados_diferencias_masas
     if uso_oficial and os.path.isfile(os.path.join(out_dir, "resultados_diferencias_masas.csv")):
         csv_masas = os.path.join(out_dir, "resultados_diferencias_masas.csv")

@@ -38,12 +38,25 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.colors import LinearSegmentedColormap
+    from matplotlib import patheffects
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    LinearSegmentedColormap = None
+    patheffects = None
 
 ALPHA = 0.05
 
@@ -124,8 +137,8 @@ def heatmap_correlacion(mat_r, mat_n, out_path):
 
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(mat_r.columns, rotation=35, ha="right", fontsize=9)
-    ax.set_yticklabels(mat_r.index, fontsize=9)
+    ax.set_xticklabels(mat_r.columns, rotation=35, ha="right", fontsize=10)
+    ax.set_yticklabels(mat_r.index, fontsize=10)
 
     for i in range(n):
         for j in range(n):
@@ -140,7 +153,7 @@ def heatmap_correlacion(mat_r, mat_n, out_path):
             else:
                 txt = f"{r_val:.3f}\n(n={int(n_val)})"
                 color = "black" if abs(r_val) < 0.85 else "white"
-            ax.text(j, i, txt, ha="center", va="center", fontsize=7.5, color=color)
+            ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
     plt.colorbar(im, ax=ax, label="r de Pearson")
     ax.set_title("Correlación de Pearson entre instrumentos\n(SR semanal Q25 normalizado)",
@@ -151,18 +164,45 @@ def heatmap_correlacion(mat_r, mat_n, out_path):
     logger.info("Heatmap correlación: %s", out_path)
 
 
+def _cmap_pvalores_claro():
+    """Colormap para p-valores: verde/rojo distinguibles pero no oscuros; texto con borde blanco."""
+    base = plt.cm.RdYlGn_r
+    # Tramo 35%-82%: evita extremos muy oscuros
+    colores = base(np.linspace(0.35, 0.82, 256))
+    # Mezcla 55% color + 45% blanco
+    blanco = np.array([1.0, 1.0, 1.0, 1.0])
+    colores = colores * 0.55 + blanco * 0.45
+    colores = np.clip(colores, 0, 1)
+    return LinearSegmentedColormap.from_list("pvalores_claro", colores, N=256)
+
+
 def heatmap_pvalores(mat_p, out_path):
+    """
+    Heatmap de p-valores en escala lineal (0 a 0,1). Verde claro = p bajo, rojo claro = p alto.
+    """
     n = len(mat_p)
     fig, ax = plt.subplots(figsize=(max(7, n * 1.1), max(6, n)))
 
-    cmap = plt.cm.RdYlGn
-    im = ax.imshow(mat_p.values.astype(float), cmap=cmap, vmin=0, vmax=0.1, aspect="auto")
+    # Escala lineal: p en [0, 0.1]; diagonal no se pinta
+    mat_plot = mat_p.values.astype(float).copy()
+    for i in range(n):
+        for j in range(n):
+            if i == j:
+                mat_plot[i, j] = np.nan
+            elif np.isfinite(mat_plot[i, j]) and mat_plot[i, j] <= 0:
+                mat_plot[i, j] = 0.0  # p≈0 → verde
+    # Mismo colormap que heatmap de r (RdYlGn): verde = p bajo, rojo = p alto
+    plot_val = np.clip(mat_plot, 0.0, 0.1)
+    cmap = plt.cm.RdYlGn_r
+    im = ax.imshow(plot_val, cmap=cmap, vmin=0, vmax=0.1, aspect="auto")
 
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(mat_p.columns, rotation=35, ha="right", fontsize=9)
-    ax.set_yticklabels(mat_p.index, fontsize=9)
+    ax.set_xticklabels(mat_p.columns, rotation=35, ha="right", fontsize=10)
+    ax.set_yticklabels(mat_p.index, fontsize=10)
 
+    # Misma lógica que heatmap_r: negro en tonos medios, blanco en extremos (verde/rojo oscuros)
+    norm = plt.Normalize(vmin=0, vmax=0.1)
     for i in range(n):
         for j in range(n):
             val = mat_p.values[i, j]
@@ -170,12 +210,16 @@ def heatmap_pvalores(mat_p, out_path):
                 txt, color = "—", "gray"
             elif i == j:
                 txt, color = "—", "gray"
+            elif np.isfinite(val) and val <= 0:
+                txt, color = "p≈0", "white"
             elif val < 0.001:
                 txt, color = "p<0.001", "white"
             else:
-                txt = f"p={val:.3f}"
-                color = "black" if val > 0.05 else "white"
-            ax.text(j, i, txt, ha="center", va="center", fontsize=7.5, color=color)
+                txt = "p=%.3f" % val
+                rgba = cmap(norm(np.clip(float(val), 0, 0.1)))
+                lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+                color = "black" if lum > 0.55 else "white"
+            ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
     plt.colorbar(im, ax=ax, label="p-valor")
     ax.set_title("P-valores de correlación de Pearson entre instrumentos",

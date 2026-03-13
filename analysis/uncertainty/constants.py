@@ -70,6 +70,17 @@ PT100_TOLERANCE_ADD_C = 0.15     # °C (término constante)
 PT100_TOLERANCE_SCALE = 0.002    # por °C (término proporcional a |t|)
 # u(T) en °C = (PT100_TOLERANCE_ADD_C + PT100_TOLERANCE_SCALE * abs(t)) / sqrt(3)
 
+# Temperatura típica para propagación cuando no hay T por fila (°C)
+PT100_T_TYPICAL_C = 35.0
+
+# -----------------------------------------------------------------------------
+# IEC 60891 — coeficientes de corrección a 25 °C (mismos que en calcular_sr_*_corr)
+# -----------------------------------------------------------------------------
+# Pmax_corr = Pmax / (1 + β×(T−25)),  Isc_corr = Isc / (1 + α×(T−25))
+IEC60891_T_REF_C = 25.0
+IEC60891_ALPHA_ISC = 0.0004    # /°C (Isc)
+IEC60891_BETA_PMAX = -0.0036   # /°C (Pmax)
+
 # -----------------------------------------------------------------------------
 # PVStand (IV tracer) — Isc, voltaje, Pmax + corrección T (PT100)
 # -----------------------------------------------------------------------------

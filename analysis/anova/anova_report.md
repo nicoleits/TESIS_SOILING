@@ -7,15 +7,16 @@
 ---
 ## Conjunto: Pool completo
 
-**N total de observaciones:** 308  
+**N total de observaciones:** 313  
 **Semanas por instrumento:**
 
 - DustIQ: n=54
-- IV600: n=30
-- IV600 corr: n=29
-- PVStand: n=54
-- PVStand corr: n=50
-- RefCells: n=37
+- IV600 Isc: n=29
+- IV600 Pmax: n=29
+- PV Glasses: n=11
+- PVStand Isc: n=50
+- PVStand Pmax: n=50
+- RefCells: n=36
 - Soiling Kit: n=54
 
 ### 1. Supuestos
@@ -25,70 +26,73 @@
 | Instrumento | n | W | p | ¿Normal α=0.05? |
 |---|---|---|---|---|
 | DustIQ | 54 | 0.9327 | 0.0047 | ✗ |
-| IV600 | 30 | 0.9235 | 0.0332 | ✗ |
-| IV600 corr | 29 | 0.9299 | 0.0547 | ✓ |
-| PVStand | 54 | 0.9062 | 0.0005 | ✗ |
-| PVStand corr | 50 | 0.9503 | 0.0351 | ✗ |
-| RefCells | 37 | 0.9141 | 0.0074 | ✗ |
+| IV600 Isc | 29 | 0.8713 | 0.0022 | ✗ |
+| IV600 Pmax | 29 | 0.9299 | 0.0547 | ✓ |
+| PV Glasses | 11 | 0.9070 | 0.2245 | ✓ |
+| PVStand Isc | 50 | 0.9414 | 0.0153 | ✗ |
+| PVStand Pmax | 50 | 0.9503 | 0.0351 | ✗ |
+| RefCells | 36 | 0.9079 | 0.0057 | ✗ |
 | Soiling Kit | 54 | 0.9355 | 0.0061 | ✗ |
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 8.6841  
+- Estadístico: 13.9627  
 - p-valor: 0.0  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 182.3813,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 85.8681,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 200.6049,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 135.1587,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
 | Par | Diferencia de medias | p_adj |
 |---|---|---|
-| DustIQ vs PVStand | -8.100 pp | 0.0000 |
-| DustIQ vs PVStand corr | -7.210 pp | 0.0000 |
-| IV600 vs PVStand | -7.961 pp | 0.0000 |
-| IV600 vs PVStand corr | -7.071 pp | 0.0000 |
-| IV600 corr vs PVStand | -8.834 pp | 0.0000 |
-| IV600 corr vs PVStand corr | -7.945 pp | 0.0000 |
-| PVStand vs RefCells | 8.870 pp | 0.0000 |
-| PVStand vs Soiling Kit | 7.705 pp | 0.0000 |
-| PVStand corr vs RefCells | 7.980 pp | 0.0000 |
-| PVStand corr vs Soiling Kit | 6.815 pp | 0.0000 |
+| DustIQ vs PV Glasses | -3.367 pp | 0.0000 |
+| DustIQ vs PVStand Pmax | -7.210 pp | 0.0000 |
+| IV600 Isc vs PV Glasses | -3.897 pp | 0.0000 |
+| IV600 Isc vs PVStand Pmax | -7.740 pp | 0.0000 |
+| IV600 Pmax vs PV Glasses | -4.102 pp | 0.0000 |
+| IV600 Pmax vs PVStand Pmax | -7.945 pp | 0.0000 |
+| PV Glasses vs PVStand Isc | 2.872 pp | 0.0004 |
+| PV Glasses vs PVStand Pmax | -3.843 pp | 0.0000 |
+| PV Glasses vs RefCells | 4.199 pp | 0.0000 |
+| PV Glasses vs Soiling Kit | 2.973 pp | 0.0002 |
+| PVStand Isc vs PVStand Pmax | -6.715 pp | 0.0000 |
+| PVStand Isc vs RefCells | 1.327 pp | 0.0464 |
+| PVStand Pmax vs RefCells | 8.042 pp | 0.0000 |
+| PVStand Pmax vs Soiling Kit | 6.815 pp | 0.0000 |
 
 ### 5. Post-hoc Dunn + Bonferroni (pares significativos, p_adj < 0.05)
 
 | Par | p_adj (Bonferroni) |
 |---|---|
-| DustIQ vs PVStand | 0.0000 |
-| DustIQ vs PVStand corr | 0.0000 |
-| IV600 vs PVStand | 0.0000 |
-| IV600 vs PVStand corr | 0.0000 |
-| IV600 corr vs PVStand | 0.0000 |
-| IV600 corr vs PVStand corr | 0.0000 |
-| PVStand vs RefCells | 0.0000 |
-| PVStand vs Soiling Kit | 0.0000 |
-| PVStand corr vs RefCells | 0.0000 |
-| PVStand corr vs Soiling Kit | 0.0000 |
+| DustIQ vs PVStand Pmax | 0.0000 |
+| IV600 Isc vs PVStand Pmax | 0.0000 |
+| IV600 Pmax vs PVStand Pmax | 0.0000 |
+| PVStand Isc vs PVStand Pmax | 0.0000 |
+| PVStand Isc vs RefCells | 0.0360 |
+| PVStand Pmax vs RefCells | 0.0000 |
+| PVStand Pmax vs Soiling Kit | 0.0000 |
 
 ---
 ## Conjunto: Intersección
 
-**N total de observaciones:** 182  
+**N total de observaciones:** 48  
 **Semanas por instrumento:**
 
-- DustIQ: n=26
-- IV600: n=26
-- IV600 corr: n=26
-- PVStand: n=26
-- PVStand corr: n=26
-- RefCells: n=26
-- Soiling Kit: n=26
+- DustIQ: n=6
+- IV600 Isc: n=6
+- IV600 Pmax: n=6
+- PV Glasses: n=6
+- PVStand Isc: n=6
+- PVStand Pmax: n=6
+- RefCells: n=6
+- Soiling Kit: n=6
 
 ### 1. Supuestos
 
@@ -96,58 +100,57 @@
 
 | Instrumento | n | W | p | ¿Normal α=0.05? |
 |---|---|---|---|---|
-| DustIQ | 26 | 0.9724 | 0.6855 | ✓ |
-| IV600 | 26 | 0.9131 | 0.0310 | ✗ |
-| IV600 corr | 26 | 0.9186 | 0.0416 | ✗ |
-| PVStand | 26 | 0.8860 | 0.0077 | ✗ |
-| PVStand corr | 26 | 0.9162 | 0.0367 | ✗ |
-| RefCells | 26 | 0.8382 | 0.0008 | ✗ |
-| Soiling Kit | 26 | 0.9333 | 0.0930 | ✓ |
+| DustIQ | 6 | 0.9190 | 0.4984 | ✓ |
+| IV600 Isc | 6 | 0.9660 | 0.8646 | ✓ |
+| IV600 Pmax | 6 | 0.9664 | 0.8673 | ✓ |
+| PV Glasses | 6 | 0.8410 | 0.1329 | ✓ |
+| PVStand Isc | 6 | 0.9150 | 0.4703 | ✓ |
+| PVStand Pmax | 6 | 0.8907 | 0.3221 | ✓ |
+| RefCells | 6 | 0.8829 | 0.2826 | ✓ |
+| Soiling Kit | 6 | 0.6863 | 0.0044 | ✗ |
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 4.5494  
-- p-valor: 0.0003  
+- Estadístico: 11.179  
+- p-valor: 0.0  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 223.6409,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 28.5211,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 118.4655,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 31.1616,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
 | Par | Diferencia de medias | p_adj |
 |---|---|---|
-| DustIQ vs PVStand | -8.322 pp | 0.0000 |
-| DustIQ vs PVStand corr | -7.046 pp | 0.0000 |
-| IV600 vs PVStand | -8.107 pp | 0.0000 |
-| IV600 vs PVStand corr | -6.831 pp | 0.0000 |
-| IV600 corr vs PVStand | -9.072 pp | 0.0000 |
-| IV600 corr vs PVStand corr | -7.796 pp | 0.0000 |
-| PVStand vs PVStand corr | 1.276 pp | 0.0111 |
-| PVStand vs RefCells | 8.796 pp | 0.0000 |
-| PVStand vs Soiling Kit | 8.294 pp | 0.0000 |
-| PVStand corr vs RefCells | 7.520 pp | 0.0000 |
-| PVStand corr vs Soiling Kit | 7.018 pp | 0.0000 |
+| DustIQ vs PV Glasses | -4.598 pp | 0.0000 |
+| DustIQ vs PVStand Pmax | -7.213 pp | 0.0000 |
+| IV600 Isc vs PV Glasses | -5.283 pp | 0.0000 |
+| IV600 Isc vs PVStand Pmax | -7.897 pp | 0.0000 |
+| IV600 Pmax vs PV Glasses | -5.595 pp | 0.0000 |
+| IV600 Pmax vs PVStand Pmax | -8.209 pp | 0.0000 |
+| PV Glasses vs PVStand Isc | 4.630 pp | 0.0000 |
+| PV Glasses vs PVStand Pmax | -2.614 pp | 0.0432 |
+| PV Glasses vs RefCells | 5.298 pp | 0.0000 |
+| PV Glasses vs Soiling Kit | 4.705 pp | 0.0000 |
+| PVStand Isc vs PVStand Pmax | -7.244 pp | 0.0000 |
+| PVStand Pmax vs RefCells | 7.912 pp | 0.0000 |
+| PVStand Pmax vs Soiling Kit | 7.319 pp | 0.0000 |
 
 ### 5. Post-hoc Dunn + Bonferroni (pares significativos, p_adj < 0.05)
 
 | Par | p_adj (Bonferroni) |
 |---|---|
-| DustIQ vs PVStand | 0.0000 |
-| DustIQ vs PVStand corr | 0.0000 |
-| IV600 vs PVStand | 0.0000 |
-| IV600 vs PVStand corr | 0.0001 |
-| IV600 corr vs PVStand | 0.0000 |
-| IV600 corr vs PVStand corr | 0.0000 |
-| PVStand vs RefCells | 0.0000 |
-| PVStand vs Soiling Kit | 0.0000 |
-| PVStand corr vs RefCells | 0.0000 |
-| PVStand corr vs Soiling Kit | 0.0000 |
+| IV600 Isc vs PV Glasses | 0.0272 |
+| IV600 Isc vs PVStand Pmax | 0.0049 |
+| IV600 Pmax vs PV Glasses | 0.0086 |
+| IV600 Pmax vs PVStand Pmax | 0.0014 |
+| PV Glasses vs RefCells | 0.0483 |
+| PVStand Pmax vs RefCells | 0.0093 |
 
 ---
 ## Conclusión general

@@ -201,9 +201,18 @@ def run_analisis_qaqc(data_dir, output_dir=None):
     # --- Figura: distribución dist_solar_noon_min ---
     if "dist_solar_noon_min" in df_solar.columns:
         try:
+            import locale
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
+            try:
+                locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+            except locale.Error:
+                try:
+                    locale.setlocale(locale.LC_NUMERIC, "es_ES")
+                except locale.Error:
+                    pass
+            plt.rcParams["axes.formatter.use_locale"] = True
             fig, ax = plt.subplots(figsize=(7, 4))
             d = df_solar["dist_solar_noon_min"].dropna()
             ax.hist(d, bins=min(30, max(10, len(d) // 5)), color="steelblue", edgecolor="white", alpha=0.85, density=True, label="Días")
@@ -230,9 +239,18 @@ def run_analisis_qaqc(data_dir, output_dir=None):
         n_estables = (df_estab["indicador_estabilidad"] < UMBRAL_ESTABILIDAD_G).sum()
         # Figura: distribución del indicador de estabilidad
         try:
+            import locale
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
+            try:
+                locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+            except locale.Error:
+                try:
+                    locale.setlocale(locale.LC_NUMERIC, "es_ES")
+                except locale.Error:
+                    pass
+            plt.rcParams["axes.formatter.use_locale"] = True
             fig, ax = plt.subplots(figsize=(7, 4))
             x = df_estab["indicador_estabilidad"].dropna()
             ax.hist(x, bins=min(40, max(15, len(x) // 3)), color="teal", edgecolor="white", alpha=0.85, density=True, label="Días")
@@ -255,10 +273,19 @@ def run_analisis_qaqc(data_dir, output_dir=None):
 
     # --- Visualizaciones adicionales: embudo visual y figura resumen ---
     try:
+        import locale
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import matplotlib.patches as mpatches
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+        except locale.Error:
+            try:
+                locale.setlocale(locale.LC_NUMERIC, "es_ES")
+            except locale.Error:
+                pass
+        plt.rcParams["axes.formatter.use_locale"] = True
 
         # Etiquetas cortas para el gráfico
         etiquetas = [

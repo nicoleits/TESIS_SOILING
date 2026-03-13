@@ -9,52 +9,65 @@
 
 | Par | n semanas | r Pearson | Interpretación | p-valor | Sig. | Bias (pp) | RMSE (pp) |
 |---|---|---|---|---|---|---|---|
-| PVStand vs PVStand corr | 50 | 0.9622 | muy alta | 0.0000 | ✓ | -0.795 | 1.121 |
-| RefCells vs IV600 | 26 | 0.9433 | muy alta | 0.0000 | ✓ | 0.690 | 0.795 |
+| Soiling Kit vs PVStand Isc | 50 | 0.9810 | muy alta | 0.0000 | ✓ | 0.200 | 0.421 |
+| PVStand Isc vs IV600 Isc | 29 | 0.9535 | muy alta | 0.0000 | ✓ | -0.674 | 0.744 |
+| RefCells vs PVStand Isc | 36 | 0.9445 | muy alta | 0.0000 | ✓ | 0.479 | 0.654 |
 | Soiling Kit vs DustIQ | 54 | 0.9244 | muy alta | 0.0000 | ✓ | -0.395 | 0.957 |
-| Soiling Kit vs RefCells | 37 | 0.9207 | muy alta | 0.0000 | ✓ | -0.395 | 0.672 |
-| DustIQ vs RefCells | 37 | 0.9079 | muy alta | 0.0000 | ✓ | -0.391 | 0.767 |
-| Soiling Kit vs IV600 | 30 | 0.8999 | alta | 0.0000 | ✓ | 0.127 | 0.515 |
-| IV600 vs IV600 corr | 29 | 0.8866 | alta | 0.0000 | ✓ | -0.875 | 1.050 |
-| DustIQ vs IV600 corr | 29 | 0.8683 | alta | 0.0000 | ✓ | -0.698 | 1.066 |
-| Soiling Kit vs PVStand corr | 50 | 0.8523 | alta | 0.0000 | ✓ | 6.914 | 7.123 |
-| PVStand vs IV600 | 30 | 0.8475 | alta | 0.0000 | ✓ | -8.064 | 8.115 |
-| DustIQ vs PVStand corr | 50 | 0.8426 | alta | 0.0000 | ✓ | 7.265 | 7.580 |
-| RefCells vs IV600 corr | 26 | 0.8319 | alta | 0.0000 | ✓ | -0.276 | 0.723 |
-| DustIQ vs PVStand | 54 | 0.8310 | alta | 0.0000 | ✓ | 8.100 | 8.340 |
-| DustIQ vs IV600 | 30 | 0.8309 | alta | 0.0000 | ✓ | 0.190 | 0.767 |
-| Soiling Kit vs IV600 corr | 29 | 0.8289 | alta | 0.0000 | ✓ | -0.739 | 1.018 |
-| Soiling Kit vs PVStand | 54 | 0.8268 | alta | 0.0000 | ✓ | 7.705 | 7.874 |
-| PVStand vs IV600 corr | 29 | 0.7720 | alta | 0.0000 | ✓ | -8.940 | 9.003 |
-| PVStand corr vs IV600 corr | 29 | 0.7382 | moderada | 0.0000 | ✓ | -7.740 | 7.840 |
-| PVStand corr vs IV600 | 29 | 0.7086 | moderada | 0.0000 | ✓ | -6.865 | 6.989 |
-| RefCells vs PVStand | 37 | 0.7035 | moderada | 0.0000 | ✓ | 7.980 | 8.222 |
-| RefCells vs PVStand corr | 37 | 0.6915 | moderada | 0.0000 | ✓ | 6.964 | 7.220 |
+| RefCells vs IV600 Isc | 26 | 0.9185 | muy alta | 0.0000 | ✓ | -0.006 | 0.420 |
+| Soiling Kit vs RefCells | 36 | 0.9141 | muy alta | 0.0000 | ✓ | -0.384 | 0.669 |
+| DustIQ vs PVStand Isc | 50 | 0.9112 | muy alta | 0.0000 | ✓ | 0.550 | 1.172 |
+| Soiling Kit vs PV Glasses | 11 | 0.9007 | muy alta | 0.0002 | ✓ | 4.249 | 5.678 |
+| DustIQ vs RefCells | 36 | 0.9001 | muy alta | 0.0000 | ✓ | -0.411 | 0.776 |
+| Soiling Kit vs IV600 Isc | 29 | 0.8807 | alta | 0.0000 | ✓ | -0.534 | 0.729 |
+| PVStand Isc vs PV Glasses | 11 | 0.8805 | alta | 0.0003 | ✓ | 4.121 | 5.506 |
+| DustIQ vs IV600 Pmax | 29 | 0.8683 | alta | 0.0000 | ✓ | -0.698 | 1.066 |
+| DustIQ vs PV Glasses | 11 | 0.8600 | alta | 0.0007 | ✓ | 4.225 | 5.867 |
+| PVStand Pmax vs PVStand Isc | 50 | 0.8535 | alta | 0.0000 | ✓ | -6.715 | 6.913 |
+| Soiling Kit vs PVStand Pmax | 50 | 0.8523 | alta | 0.0000 | ✓ | 6.914 | 7.123 |
+| PVStand Isc vs IV600 Pmax | 29 | 0.8443 | alta | 0.0000 | ✓ | -0.879 | 1.105 |
+| DustIQ vs PVStand Pmax | 50 | 0.8426 | alta | 0.0000 | ✓ | 7.265 | 7.580 |
+| RefCells vs IV600 Pmax | 26 | 0.8319 | alta | 0.0000 | ✓ | -0.276 | 0.723 |
+| Soiling Kit vs IV600 Pmax | 29 | 0.8289 | alta | 0.0000 | ✓ | -0.739 | 1.018 |
+| IV600 Pmax vs IV600 Isc | 29 | 0.8285 | alta | 0.0000 | ✓ | 0.204 | 0.732 |
+| PVStand Pmax vs PV Glasses | 11 | 0.8145 | alta | 0.0023 | ✓ | -2.315 | 3.739 |
+| DustIQ vs IV600 Isc | 29 | 0.8084 | alta | 0.0000 | ✓ | -0.493 | 0.790 |
+| PVStand Pmax vs IV600 Pmax | 29 | 0.7382 | moderada | 0.0000 | ✓ | -7.740 | 7.840 |
+| RefCells vs PVStand Pmax | 36 | 0.6745 | moderada | 0.0000 | ✓ | 6.937 | 7.199 |
+| RefCells vs PV Glasses | 10 | 0.6162 | moderada | 0.0578 | ✗ | 3.871 | 4.982 |
+| PVStand Pmax vs IV600 Isc | 29 | 0.5838 | moderada | 0.0009 | ✓ | -7.536 | 7.684 |
+| IV600 Isc vs PV Glasses | 6 | 0.3591 | baja | 0.4845 | ✗ | 5.283 | 6.058 |
+| IV600 Pmax vs PV Glasses | 6 | 0.3276 | baja | 0.5262 | ✗ | 5.595 | 6.325 |
 
 ---
 ## Pares con correlación alta (r ≥ 0.75, significativa)
 
-- **PVStand vs PVStand corr**: r = 0.9622, n = 50, RMSE = 1.121 pp
-- **RefCells vs IV600**: r = 0.9433, n = 26, RMSE = 0.795 pp
+- **Soiling Kit vs PVStand Isc**: r = 0.9810, n = 50, RMSE = 0.421 pp
+- **PVStand Isc vs IV600 Isc**: r = 0.9535, n = 29, RMSE = 0.744 pp
+- **RefCells vs PVStand Isc**: r = 0.9445, n = 36, RMSE = 0.654 pp
 - **Soiling Kit vs DustIQ**: r = 0.9244, n = 54, RMSE = 0.957 pp
-- **Soiling Kit vs RefCells**: r = 0.9207, n = 37, RMSE = 0.672 pp
-- **DustIQ vs RefCells**: r = 0.9079, n = 37, RMSE = 0.767 pp
-- **Soiling Kit vs IV600**: r = 0.8999, n = 30, RMSE = 0.515 pp
-- **IV600 vs IV600 corr**: r = 0.8866, n = 29, RMSE = 1.050 pp
-- **DustIQ vs IV600 corr**: r = 0.8683, n = 29, RMSE = 1.066 pp
-- **Soiling Kit vs PVStand corr**: r = 0.8523, n = 50, RMSE = 7.123 pp
-- **PVStand vs IV600**: r = 0.8475, n = 30, RMSE = 8.115 pp
-- **DustIQ vs PVStand corr**: r = 0.8426, n = 50, RMSE = 7.580 pp
-- **RefCells vs IV600 corr**: r = 0.8319, n = 26, RMSE = 0.723 pp
-- **DustIQ vs PVStand**: r = 0.8310, n = 54, RMSE = 8.340 pp
-- **DustIQ vs IV600**: r = 0.8309, n = 30, RMSE = 0.767 pp
-- **Soiling Kit vs IV600 corr**: r = 0.8289, n = 29, RMSE = 1.018 pp
-- **Soiling Kit vs PVStand**: r = 0.8268, n = 54, RMSE = 7.874 pp
-- **PVStand vs IV600 corr**: r = 0.7720, n = 29, RMSE = 9.003 pp
+- **RefCells vs IV600 Isc**: r = 0.9185, n = 26, RMSE = 0.420 pp
+- **Soiling Kit vs RefCells**: r = 0.9141, n = 36, RMSE = 0.669 pp
+- **DustIQ vs PVStand Isc**: r = 0.9112, n = 50, RMSE = 1.172 pp
+- **Soiling Kit vs PV Glasses**: r = 0.9007, n = 11, RMSE = 5.678 pp
+- **DustIQ vs RefCells**: r = 0.9001, n = 36, RMSE = 0.776 pp
+- **Soiling Kit vs IV600 Isc**: r = 0.8807, n = 29, RMSE = 0.729 pp
+- **PVStand Isc vs PV Glasses**: r = 0.8805, n = 11, RMSE = 5.506 pp
+- **DustIQ vs IV600 Pmax**: r = 0.8683, n = 29, RMSE = 1.066 pp
+- **DustIQ vs PV Glasses**: r = 0.8600, n = 11, RMSE = 5.867 pp
+- **PVStand Pmax vs PVStand Isc**: r = 0.8535, n = 50, RMSE = 6.913 pp
+- **Soiling Kit vs PVStand Pmax**: r = 0.8523, n = 50, RMSE = 7.123 pp
+- **PVStand Isc vs IV600 Pmax**: r = 0.8443, n = 29, RMSE = 1.105 pp
+- **DustIQ vs PVStand Pmax**: r = 0.8426, n = 50, RMSE = 7.580 pp
+- **RefCells vs IV600 Pmax**: r = 0.8319, n = 26, RMSE = 0.723 pp
+- **Soiling Kit vs IV600 Pmax**: r = 0.8289, n = 29, RMSE = 1.018 pp
+- **IV600 Pmax vs IV600 Isc**: r = 0.8285, n = 29, RMSE = 0.732 pp
+- **PVStand Pmax vs PV Glasses**: r = 0.8145, n = 11, RMSE = 3.739 pp
+- **DustIQ vs IV600 Isc**: r = 0.8084, n = 29, RMSE = 0.790 pp
 
 ## Pares con correlación baja (r < 0.50)
 
-_Todos los pares tienen r ≥ 0.50._
+- **IV600 Isc vs PV Glasses**: r = 0.3591, n = 6
+- **IV600 Pmax vs PV Glasses**: r = 0.3276, n = 6
 
 ---
 ## Interpretación

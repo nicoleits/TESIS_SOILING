@@ -25,10 +25,19 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
@@ -40,13 +49,18 @@ except ImportError:
     PERIODO_ANALISIS_FIN = "2025-08-04"
     REFCELLS_FECHA_MAX = "2025-05-20"
 
+try:
+    from analysis.uncertainty.sr_metodologias import U_pp_por_metodologia
+except ImportError:
+    U_pp_por_metodologia = None
+
 # ---------------------------------------------------------------------------
 # Configuración: (nombre_display, ruta_csv, columna_SR, fecha_max_override).
 # fecha_max_override=None → usar PERIODO_ANALISIS_FIN.
 # PVStand e IV600: solo series corregidas (T), con Pmax e Isc por separado; etiquetas sin "corr".
 # ---------------------------------------------------------------------------
 def _build_config(sr_dir):
-    # PV Glasses excluido: cada medición es distinta duración de exposición; no comparable como serie semanal.
+    # PV Glasses se incorpora aparte por semana de exposición (ver _cargar_pv_glasses_por_semana_exposicion).
     return [
         ("Soiling Kit",   os.path.join(sr_dir, "soilingkit_sr.csv"),       "SR",                  None),
         ("DustIQ",        os.path.join(sr_dir, "dustiq_sr.csv"),            "SR",                  None),
@@ -56,6 +70,44 @@ def _build_config(sr_dir):
         ("IV600 Pmax",    os.path.join(sr_dir, "iv600_sr_corr.csv"),       "SR_Pmax_corr_434",    None),
         ("IV600 Isc",     os.path.join(sr_dir, "iv600_sr_corr.csv"),       "SR_Isc_corr_434",     None),
     ]
+
+
+def _cargar_pv_glasses_por_semana_exposicion(project_root, reference_week_dates, col_sr="sr_q25"):
+    """
+    Carga PV Glasses desde pv_glasses_por_periodo.csv y agrupa por semana de exposición:
+    semana_exp = round(dias_exposicion / 7). Para cada semana_exp (1, 2, 3, ...) calcula
+    Q25(sr_q25) y std sobre las filas; asigna ese valor a la fecha reference_week_dates[semana_exp - 1].
+    Así la "primera semana" del gráfico muestra todos los periodos que duraron ~1 semana, etc.
+
+    reference_week_dates: lista o Index de fechas (inicio de semana, lunes) en orden, índice 0 = semana 1.
+    Devuelve (q25_series, std_series, n_series) con index = fechas, o (None, None, None) si no hay datos.
+    """
+    path_pg = os.path.join(project_root, "analysis", "pv_glasses", "pv_glasses_por_periodo.csv")
+    if not os.path.isfile(path_pg):
+        return None, None, None
+    df = pd.read_csv(path_pg)
+    if col_sr not in df.columns or "dias_exposicion" not in df.columns:
+        return None, None, None
+    df = df.dropna(subset=[col_sr])
+    df = df[df[col_sr] >= 80.0]
+    if df.empty:
+        return None, None, None
+    ref_dates = pd.DatetimeIndex(reference_week_dates)
+    df["semana_exp"] = (df["dias_exposicion"] / 7.0).round().clip(lower=1).astype(int)
+    # Solo semanas que caben en el eje del gráfico
+    max_semana = len(ref_dates)
+    df = df[df["semana_exp"] <= max_semana]
+    if df.empty:
+        return None, None, None
+    agg = df.groupby("semana_exp")[col_sr].agg([lambda x: x.quantile(0.25), "std", "count"])
+    agg.columns = ["q25", "std", "n"]
+    agg["std"] = agg["std"].fillna(0)
+    # Mapear semana_exp (1, 2, ...) a fecha: ref_dates[semana_exp - 1]
+    fechas = ref_dates[agg.index.values - 1]
+    q25_series = pd.Series(agg["q25"].values, index=fechas, name="PV Glasses")
+    std_series = pd.Series(agg["std"].values, index=fechas)
+    n_series = pd.Series(agg["n"].values, index=fechas)
+    return q25_series, std_series, n_series
 
 
 def _get_time_col(df):
@@ -301,6 +353,108 @@ def grafico_norm_superpuesto_sombra(datos_norm, out_path):
     logger.info("Gráfico norm superpuesto con sombra: %s", out_path)
 
 
+def _cargar_incertidumbre_u_pp(project_root):
+    """
+    Carga U(SR) mediana [pp] por metodología desde resumen_incertidumbre_sr_por_metodologia.csv.
+    Devuelve dict: nombre_display -> U_pp (float).
+    Para series no en la tabla (PVStand Isc, IV600 Pmax) usa valores coherentes con la fórmula.
+    """
+    path_csv = os.path.join(project_root, "analysis", "uncertainty", "results",
+                            "resumen_incertidumbre_sr_por_metodologia.csv")
+    out = {}
+    if os.path.isfile(path_csv):
+        df = pd.read_csv(path_csv)
+        for _, row in df.iterrows():
+            met = row["Metodología"]
+            u_med = row["U(SR) mediana [pp]"]
+            if isinstance(u_med, (int, float)) and not np.isnan(u_med):
+                out[met] = float(u_med)
+    # Mapeo nombre del gráfico -> clave tabla (o valor fijo)
+    # PVStand Pmax = PVStand; PVStand Isc y IV600 Pmax no están en tabla → uso IV600/Soiling Kit tipo
+    if "PVStand" in out and "PVStand Pmax" not in out:
+        out["PVStand Pmax"] = out["PVStand"]
+    if "PVStand Isc" not in out:
+        # Isc: misma escala que Soiling Kit / IV600 Isc → U ≈ 0,28 pp
+        out["PVStand Isc"] = out.get("Soiling Kit", 0.28)
+    if "IV600" in out:
+        out["IV600 Isc"] = out["IV600"]
+        if "IV600 Pmax" not in out:
+            out["IV600 Pmax"] = out["IV600"]
+    return out
+
+
+def grafico_norm_superpuesto_incertidumbre(datos_norm, out_path, uncertainty_pp_series_by_name):
+    """
+    Mismo layout que grafico_norm_superpuesto_sombra pero la banda es ± U(SR) [pp]
+    (incertidumbre expandida por propagación; depende del valor en cada semana).
+    uncertainty_pp_series_by_name: dict nombre -> pd.Series con U(SR) en unidades del eje Y
+    (normalizado, mismo índice que q25_n). Se dibuja primero la banda y luego la línea.
+    """
+    fig, ax = plt.subplots(figsize=(14, 6))
+    colors = plt.cm.tab10.colors
+    y_min, y_max = 80, 105
+    for i, (nombre, (q25_n, _)) in enumerate(datos_norm.items()):
+        color = colors[i % len(colors)]
+        u_series = uncertainty_pp_series_by_name.get(nombre)
+        if u_series is not None and hasattr(u_series, "reindex"):
+            errs = u_series.reindex(q25_n.index).fillna(0).values
+        else:
+            errs = np.full_like(q25_n.values, float(u_series) if u_series is not None else 0.5, dtype=float)
+        low = np.clip(q25_n.values - errs, y_min, y_max)
+        high = np.clip(q25_n.values + errs, y_min, y_max)
+        ax.fill_between(q25_n.index, low, high, alpha=0.2, color=color, zorder=0)
+        ax.plot(q25_n.index, q25_n.values, "o-", color=color,
+                linewidth=1.5, markersize=4, label=nombre, alpha=0.9, zorder=2)
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%", zorder=1)
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("SR (%)")
+    ax.set_ylim(y_min, y_max)
+    # pad: separación título–eje en puntos; +6 pt ≈ 2 mm para subir el título
+    ax.set_title("SR Semanal Q25 Normalizado ± U(SR) (t₀ = 100%) — incertidumbre expandida [pp]", pad=12)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    fig.autofmt_xdate()
+    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico norm superpuesto con incertidumbre: %s", out_path)
+
+
+def grafico_norm_superpuesto_barras_incertidumbre(datos_norm, out_path, uncertainty_pp_series_by_name):
+    """
+    Mismas series que grafico_norm_superpuesto_incertidumbre pero con barras de error
+    ± U(SR) [pp] en cada punto (incertidumbre por propagación, distinta por semana).
+    """
+    fig, ax = plt.subplots(figsize=(14, 6))
+    colors = plt.cm.tab10.colors
+    for i, (nombre, (q25_n, _)) in enumerate(datos_norm.items()):
+        color = colors[i % len(colors)]
+        u_series = uncertainty_pp_series_by_name.get(nombre)
+        if u_series is not None and hasattr(u_series, "reindex"):
+            errs = u_series.reindex(q25_n.index).fillna(0).values
+        else:
+            errs = np.full_like(q25_n.values, float(u_series) if u_series is not None else 0.5, dtype=float)
+        ax.plot(q25_n.index, q25_n.values, "o-", color=color,
+                linewidth=1.3, markersize=3, label=nombre, alpha=0.85)
+        ax.errorbar(q25_n.index, q25_n.values, yerr=errs, fmt="none",
+                    ecolor=color, elinewidth=1.0, capsize=2.5, capthick=1.0, alpha=0.7)
+    ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
+    ax.set_xlabel("Fecha")
+    ax.set_ylabel("SR (%)")
+    ax.set_title("SR Semanal Q25 Normalizado ± U(SR) (t₀ = 100%) — barras = incertidumbre expandida [pp]")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
+    ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
+    fig.autofmt_xdate()
+    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    logger.info("Gráfico norm superpuesto con barras de incertidumbre: %s", out_path)
+
+
 def grafico_norm_barras_t(datos_norm, out_path):
     """Un subplot por instrumento con SR normalizado y barras T (±1 std escalado)."""
     nombres = list(datos_norm.keys())
@@ -399,8 +553,13 @@ def run(sr_dir, out_dir):
         if semanal is None or semanal.empty:
             logger.info("Omite %s: sin semanas.", nombre)
             continue
-        series_semanales[nombre] = semanal
         q25, std, n = agregar_semanal_q25_y_std(serie_diaria, nombre)
+        if nombre == "RefCells" and len(semanal) > 1:
+            semanal = semanal.iloc[:-1]
+            q25 = q25.iloc[:-1]
+            std = std.iloc[:-1] if std is not None else std
+            n = n.iloc[:-1] if n is not None else n
+        series_semanales[nombre] = semanal
         datos_con_std[nombre] = (q25, std, n)
         q25_n, std_n = normalizar_desde_inicio(q25, std)
         if q25_n is not None:
@@ -414,6 +573,43 @@ def run(sr_dir, out_dir):
     if not series_semanales:
         logger.error("No se encontraron datos SR.")
         return False
+
+    # --- PV Glasses por semana de exposición (alineado al primer dato graficado)
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    ref_dates = sorted(set().union(*[dn[0].index for dn in datos_norm.values()]))
+    q25_pg, std_pg, n_pg = _cargar_pv_glasses_por_semana_exposicion(project_root, ref_dates)
+    if q25_pg is not None and not q25_pg.empty:
+        series_semanales["PV Glasses"] = q25_pg
+        datos_con_std["PV Glasses"] = (q25_pg, std_pg, n_pg)
+        q25_pg_n, std_pg_n = normalizar_desde_inicio(q25_pg, std_pg)
+        if q25_pg_n is not None:
+            datos_norm["PV Glasses"] = (q25_pg_n, std_pg_n)
+        disp_pg = dispersion_entre_semanas(q25_pg, "PV Glasses")
+        if disp_pg:
+            disp_rows.append(disp_pg)
+            logger.info("%-15s: %d semanas (por exp.), Q25 media=%.2f%%, std=%.2f%%, CV=%.2f%%",
+                        "PV Glasses", len(q25_pg), disp_pg["mean"], disp_pg["std"], disp_pg["cv_pct"])
+        else:
+            logger.info("%-15s: %d semanas (por semana de exposición)", "PV Glasses", len(q25_pg))
+
+    # --- Incertidumbre U(SR) por semana (propagación: depende del valor Q25 de cada semana)
+    datos_u_pp_norm = {}
+    datos_u_pp_orig = {}  # U(SR) en pp (escala original) para exportar en CSV
+    for nombre in list(datos_norm.keys()):
+        q25, _, _ = datos_con_std[nombre]
+        q25_0 = float(q25.dropna().iloc[0])
+        if q25_0 < 1e-9:
+            continue
+        if U_pp_por_metodologia is not None:
+            U_pp = U_pp_por_metodologia(nombre, q25.values)
+            u_norm = np.where(np.isfinite(U_pp), U_pp * (100.0 / q25_0), 0.0)
+            datos_u_pp_orig[nombre] = pd.Series(np.where(np.isfinite(U_pp), U_pp, np.nan), index=q25.index)
+        else:
+            u_by_name = _cargar_incertidumbre_u_pp(project_root)
+            u_const = u_by_name.get(nombre, 0.5)
+            u_norm = np.full(len(q25), u_const * (100.0 / q25_0))
+            datos_u_pp_orig[nombre] = pd.Series(np.full(len(q25), u_const), index=q25.index)
+        datos_u_pp_norm[nombre] = pd.Series(u_norm, index=q25.index)
 
     # --- CSV formato ancho (original)
     df_ancho = pd.DataFrame(series_semanales)
@@ -445,6 +641,27 @@ def run(sr_dir, out_dir):
     df_norm_largo.to_csv(os.path.join(out_dir, "sr_semanal_norm_largo.csv"), index=False)
     logger.info("CSV norm largo: %s", os.path.join(out_dir, "sr_semanal_norm_largo.csv"))
 
+    # --- CSV gráfico incertidumbre: sr_norm + U(SR) por semana e instrumento (todo en un solo archivo)
+    incert_rows = []
+    for nombre, (q25_n, _) in datos_norm.items():
+        u_norm_s = datos_u_pp_norm.get(nombre)
+        u_pp_s = datos_u_pp_orig.get(nombre)
+        for fecha in q25_n.index:
+            sr_norm = q25_n.loc[fecha]
+            u_sr_norm = u_norm_s.reindex([fecha]).fillna(0).iloc[0] if u_norm_s is not None else 0.0
+            u_sr_pp = u_pp_s.reindex([fecha]).fillna(np.nan).iloc[0] if u_pp_s is not None else np.nan
+            incert_rows.append({
+                "semana": fecha,
+                "instrumento": nombre,
+                "sr_norm": round(sr_norm, 4),
+                "U_SR_pp": round(u_sr_pp, 4) if np.isfinite(u_sr_pp) else "",
+                "U_sr_norm": round(u_sr_norm, 4),
+            })
+    df_incert = pd.DataFrame(incert_rows)
+    path_incert = os.path.join(out_dir, "sr_semanal_norm_incertidumbre.csv")
+    df_incert.to_csv(path_incert, index=False)
+    logger.info("CSV gráfico incertidumbre: %s", path_incert)
+
     # --- CSV dispersión
     df_disp = pd.DataFrame(disp_rows).round(4)
     df_disp.to_csv(os.path.join(out_dir, "dispersion_semanal.csv"), index=False)
@@ -462,6 +679,17 @@ def run(sr_dir, out_dir):
                                         os.path.join(out_dir, "sr_semanal_norm_sombra.png"))
         grafico_norm_barras_t(datos_norm,
                               os.path.join(out_dir, "sr_semanal_norm_barras_t.png"))
+        # Gráfico mismo layout pero bandas = ± U(SR) [pp] por semana (propagación según valor)
+        grafico_norm_superpuesto_incertidumbre(
+            datos_norm,
+            os.path.join(out_dir, "sr_semanal_norm_incertidumbre.png"),
+            datos_u_pp_norm,
+        )
+        grafico_norm_superpuesto_barras_incertidumbre(
+            datos_norm,
+            os.path.join(out_dir, "sr_semanal_norm_incertidumbre_barras.png"),
+            datos_u_pp_norm,
+        )
 
     return True
 

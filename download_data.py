@@ -73,10 +73,19 @@ import gc
 
 # Importar matplotlib para gráficos (opcional)
 try:
+    import locale
     import matplotlib
     matplotlib.use('Agg')  # Backend sin GUI
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False

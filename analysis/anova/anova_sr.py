@@ -45,10 +45,19 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 try:
+    import locale
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
+    try:
+        locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
+    except locale.Error:
+        try:
+            locale.setlocale(locale.LC_NUMERIC, "es_ES")
+        except locale.Error:
+            pass
+    plt.rcParams["axes.formatter.use_locale"] = True
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
@@ -141,25 +150,34 @@ def posthoc_dunn(df):
 # ---------------------------------------------------------------------------
 
 def grafico_violin(df_pool, df_inter, out_path):
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
     titles = ["Pool completo (todas las semanas)", "Intersección (semanas comunes)"]
+    # Rango Y común para ambos paneles (estandarizar eje)
+    all_vals = np.concatenate([df_pool["sr_norm"].dropna().values, df_inter["sr_norm"].dropna().values])
+    y_min, y_max = np.nanmin(all_vals) - 1, np.nanmax(all_vals) + 1
     for ax, data, title in zip(axes, [df_pool, df_inter], titles):
         instrumentos = sorted(data["instrumento"].unique())
         grupos = [data[data["instrumento"] == i]["sr_norm"].dropna().values for i in instrumentos]
-        parts = ax.violinplot(grupos, positions=range(len(instrumentos)),
+        n = len(instrumentos)
+        parts = ax.violinplot(grupos, positions=range(n),
                               showmedians=True, showextrema=True)
         colors = plt.cm.tab10.colors
         for i, pc in enumerate(parts["bodies"]):
             pc.set_facecolor(colors[i % len(colors)])
             pc.set_alpha(0.7)
-        ax.set_xticks(range(len(instrumentos)))
-        ax.set_xticklabels(instrumentos, rotation=20, ha="right", fontsize=8)
+        ax.set_xticks(range(n))
+        ax.set_xticklabels(instrumentos, rotation=20, ha="right", fontsize=14)
         ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
-        ax.set_ylabel("SR normalizado (%)")
-        ax.set_title(title, fontsize=10)
+        ax.set_ylim(y_min, y_max)
+        ax.set_title(title, fontsize=15)
         ax.grid(True, axis="y", alpha=0.3)
+        ax.tick_params(axis="both", labelsize=13)
+    axes[0].set_ylabel("SR normalizado (%)", fontsize=15)
+    axes[0].tick_params(axis="y", labelleft=True)
+    axes[1].tick_params(axis="y", labelleft=False)
+    axes[1].set_ylabel("")
     fig.suptitle("Distribución del SR semanal Q25 normalizado por instrumento",
-                 fontsize=12, fontweight="bold")
+                 fontsize=17, fontweight="bold")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -179,9 +197,10 @@ def _heatmap_pvalores(matrix_df, title, out_path, instrumentos=None):
 
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(matrix_df.columns, rotation=35, ha="right", fontsize=9)
-    ax.set_yticklabels(matrix_df.index, fontsize=9)
+    ax.set_xticklabels(matrix_df.columns, rotation=35, ha="right", fontsize=10)
+    ax.set_yticklabels(matrix_df.index, fontsize=10)
 
+    norm = plt.Normalize(vmin=0, vmax=0.2)
     for i in range(n):
         for j in range(n):
             val = matrix_df.values[i, j]
@@ -190,8 +209,10 @@ def _heatmap_pvalores(matrix_df, title, out_path, instrumentos=None):
                 color = "gray"
             else:
                 txt = f"{val:.3f}"
-                color = "black" if val > 0.05 else "white"
-            ax.text(j, i, txt, ha="center", va="center", fontsize=7, color=color)
+                rgba = cmap(norm(np.clip(float(val), 0, 0.2)))
+                lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
+                color = "black" if lum > 0.55 else "white"
+            ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
     plt.colorbar(im, ax=ax, label="p-valor ajustado")
     ax.set_title(title, fontsize=11, fontweight="bold")

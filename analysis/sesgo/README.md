@@ -2,7 +2,7 @@
 
 Sesgo de cada metodología frente a **una única referencia operativa**: SR por Isc del PVStand (PVStand Isc).
 
-- **Variable comparada**: SR semanal Q25 normalizado (misma definición que correlación; sin mezclar diario/semanal ni escalas).
+- **Variable comparada**: SR semanal Q25 (normalizado t₀=100% excepto IV600 Pmax/Isc en valor absoluto; misma definición que correlación).
 - **Datos**: `analysis/stats/sr_semanal_norm.csv`. No se rellenan NaN: para cada método solo se usan semanas comunes con PVStand Isc.
 - **Error con signo**: \( e_i = \mathrm{SR}_{m,i} - \mathrm{SR}_{\mathrm{PVStand\,Isc},i} \).  
   \( e_i > 0 \) → el método sobreestima; \( e_i < 0 \) → subestima.

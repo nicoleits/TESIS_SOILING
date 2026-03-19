@@ -1,8 +1,8 @@
-# Análisis ANOVA — SR Semanal Q25 Normalizado
+# Análisis ANOVA — SR Semanal Q25 (t₀=100%; IV600 Pmax/Isc valor absoluto)
 
-**Variable dependiente:** SR semanal Q25 normalizado a t₀ = 100%  
+**Variable dependiente:** SR semanal Q25 (t₀=100% excepto IV600 Pmax/Isc valor absoluto)  
 **Nivel de significancia:** α = 0.05  
-**Factor:** instrumento (Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600, IV600 corr)
+**Factor:** instrumento (Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600 Pmax, IV600 Isc)
 
 ---
 ## Conjunto: Pool completo
@@ -36,17 +36,17 @@
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 13.9627  
+- Estadístico: 13.9891  
 - p-valor: 0.0  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 85.8681,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 83.3474,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 135.1587,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 130.0405,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
@@ -54,16 +54,16 @@
 |---|---|---|
 | DustIQ vs PV Glasses | -3.367 pp | 0.0000 |
 | DustIQ vs PVStand Pmax | -7.210 pp | 0.0000 |
-| IV600 Isc vs PV Glasses | -3.897 pp | 0.0000 |
-| IV600 Isc vs PVStand Pmax | -7.740 pp | 0.0000 |
-| IV600 Pmax vs PV Glasses | -4.102 pp | 0.0000 |
-| IV600 Pmax vs PVStand Pmax | -7.945 pp | 0.0000 |
+| IV600 Isc vs PV Glasses | -3.515 pp | 0.0000 |
+| IV600 Isc vs PVStand Pmax | -7.358 pp | 0.0000 |
+| IV600 Pmax vs PV Glasses | -3.770 pp | 0.0000 |
+| IV600 Pmax vs PVStand Pmax | -7.613 pp | 0.0000 |
 | PV Glasses vs PVStand Isc | 2.872 pp | 0.0004 |
 | PV Glasses vs PVStand Pmax | -3.843 pp | 0.0000 |
 | PV Glasses vs RefCells | 4.199 pp | 0.0000 |
 | PV Glasses vs Soiling Kit | 2.973 pp | 0.0002 |
 | PVStand Isc vs PVStand Pmax | -6.715 pp | 0.0000 |
-| PVStand Isc vs RefCells | 1.327 pp | 0.0464 |
+| PVStand Isc vs RefCells | 1.327 pp | 0.0463 |
 | PVStand Pmax vs RefCells | 8.042 pp | 0.0000 |
 | PVStand Pmax vs Soiling Kit | 6.815 pp | 0.0000 |
 
@@ -74,10 +74,12 @@
 | DustIQ vs PVStand Pmax | 0.0000 |
 | IV600 Isc vs PVStand Pmax | 0.0000 |
 | IV600 Pmax vs PVStand Pmax | 0.0000 |
+| PV Glasses vs RefCells | 0.0342 |
 | PVStand Isc vs PVStand Pmax | 0.0000 |
-| PVStand Isc vs RefCells | 0.0360 |
+| PVStand Isc vs RefCells | 0.0187 |
 | PVStand Pmax vs RefCells | 0.0000 |
 | PVStand Pmax vs Soiling Kit | 0.0000 |
+| RefCells vs Soiling Kit | 0.0428 |
 
 ---
 ## Conjunto: Intersección
@@ -111,17 +113,17 @@
 
 #### Homocedasticidad (Levene)
 
-- Estadístico: 11.179  
+- Estadístico: 11.19  
 - p-valor: 0.0  
 - Resultado: ✗ heterocedástico
 
 ### 2. ANOVA paramétrico (f_oneway)
 
-- F = 28.5211,  **p < 0.001** → diferencia altamente significativa (ANOVA)
+- F = 27.3533,  **p < 0.001** → diferencia altamente significativa (ANOVA)
 
 ### 3. Kruskal-Wallis (no paramétrico)
 
-- H = 31.1616,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
+- H = 27.8673,  **p < 0.001** → diferencia altamente significativa (Kruskal-Wallis)
 
 ### 4. Post-hoc Tukey HSD (pares significativos, p_adj < 0.05)
 
@@ -129,12 +131,12 @@
 |---|---|---|
 | DustIQ vs PV Glasses | -4.598 pp | 0.0000 |
 | DustIQ vs PVStand Pmax | -7.213 pp | 0.0000 |
-| IV600 Isc vs PV Glasses | -5.283 pp | 0.0000 |
-| IV600 Isc vs PVStand Pmax | -7.897 pp | 0.0000 |
-| IV600 Pmax vs PV Glasses | -5.595 pp | 0.0000 |
-| IV600 Pmax vs PVStand Pmax | -8.209 pp | 0.0000 |
+| IV600 Isc vs PV Glasses | -4.899 pp | 0.0000 |
+| IV600 Isc vs PVStand Pmax | -7.513 pp | 0.0000 |
+| IV600 Pmax vs PV Glasses | -5.261 pp | 0.0000 |
+| IV600 Pmax vs PVStand Pmax | -7.875 pp | 0.0000 |
 | PV Glasses vs PVStand Isc | 4.630 pp | 0.0000 |
-| PV Glasses vs PVStand Pmax | -2.614 pp | 0.0432 |
+| PV Glasses vs PVStand Pmax | -2.614 pp | 0.0431 |
 | PV Glasses vs RefCells | 5.298 pp | 0.0000 |
 | PV Glasses vs Soiling Kit | 4.705 pp | 0.0000 |
 | PVStand Isc vs PVStand Pmax | -7.244 pp | 0.0000 |
@@ -145,17 +147,16 @@
 
 | Par | p_adj (Bonferroni) |
 |---|---|
-| IV600 Isc vs PV Glasses | 0.0272 |
-| IV600 Isc vs PVStand Pmax | 0.0049 |
-| IV600 Pmax vs PV Glasses | 0.0086 |
-| IV600 Pmax vs PVStand Pmax | 0.0014 |
-| PV Glasses vs RefCells | 0.0483 |
-| PVStand Pmax vs RefCells | 0.0093 |
+| IV600 Isc vs PVStand Pmax | 0.0390 |
+| IV600 Pmax vs PV Glasses | 0.0390 |
+| IV600 Pmax vs PVStand Pmax | 0.0063 |
+| PV Glasses vs RefCells | 0.0272 |
+| PVStand Pmax vs RefCells | 0.0042 |
 
 ---
 ## Conclusión general
 
-El análisis ANOVA sobre los datos normalizados evalúa si los instrumentos
+El análisis ANOVA evalúa si los instrumentos
 evolucionan de forma estadísticamente equivalente una vez eliminado el sesgo
 de nivel absoluto. Un resultado significativo indica que la **tasa de cambio**
 del SR difiere entre instrumentos, lo que implica que no son intercambiables

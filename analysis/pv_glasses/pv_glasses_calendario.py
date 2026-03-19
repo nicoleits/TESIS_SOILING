@@ -41,6 +41,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -49,9 +50,16 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos):
+        """Formatear número con coma decimal para ejes."""
+        return f"{x:.3f}".replace(".", ",")
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    FuncFormatter = None
+    _formatter_coma = None
 
 # ---------------------------------------------------------------------------
 # Constantes
@@ -716,36 +724,63 @@ def resumir_por_periodo(df_res):
 # Gráficos
 # ---------------------------------------------------------------------------
 
-def grafico_sr_vs_dias(df_res, out_path):
+def grafico_sr_vs_dias(df_res, out_path, title_suffix=None, tendencia_global_only=False):
+    """Scatter SR Q25 vs días de exposición por vidrio (A, B, C). Si tendencia_global_only=True, una sola línea de ajuste a todos los puntos."""
     fig, ax = plt.subplots(figsize=(12, 6))
     colors  = {"A": "#e6194b", "B": "#3cb44b", "C": "#4363d8"}
     markers = {"A": "o",       "B": "s",        "C": "^"}
 
+    df_ok = df_res.dropna(subset=["dias_exposicion", "sr_q25"])
+    # Regresión global (para tendencia única)
+    if len(df_ok) >= 2:
+        x_all = df_ok["dias_exposicion"].values.astype(float)
+        y_all = df_ok["sr_q25"].values.astype(float)
+        z_global = np.polyfit(x_all, y_all, 1)
+        y_pred = np.polyval(z_global, x_all)
+        ss_res = np.sum((y_all - y_pred) ** 2)
+        ss_tot = np.sum((y_all - y_all.mean()) ** 2)
+        r2_global = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+    else:
+        z_global, r2_global = None, np.nan
+
     for muestra, grupo in df_res.groupby("muestra"):
-        ax.scatter(grupo["dias_exposicion"], grupo["sr_q25"],
+        g = grupo.dropna(subset=["dias_exposicion", "sr_q25"])
+        lab = f"Vidrio {muestra} (FC{'5' if muestra=='A' else '4' if muestra=='B' else '3'})"
+        if not tendencia_global_only and len(g) >= 2:
+            xg, yg = g["dias_exposicion"].values.astype(float), g["sr_q25"].values.astype(float)
+            z = np.polyfit(xg, yg, 1)
+            r = np.corrcoef(xg, yg)[0, 1] if len(xg) > 2 else np.nan
+            r2 = (r ** 2) if not np.isnan(r) else np.nan
+            sp = f"{z[0]:.4f}".replace(".", ",")
+            sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+            lab += f"\nPend: {sp} %/día, R² = {sr2}"
+            xr = np.linspace(xg.min(), xg.max(), 100)
+            ax.plot(xr, np.polyval(z, xr), "-", color=colors.get(muestra, "gray"), linewidth=1.5, alpha=0.8)
+        ax.scatter(g["dias_exposicion"], g["sr_q25"],
                    c=colors.get(muestra, "gray"),
                    marker=markers.get(muestra, "o"),
-                   s=55, alpha=0.75, label=f"Vidrio {muestra} (FC{'5' if muestra=='A' else '4' if muestra=='B' else '3'})",
+                   s=55, alpha=0.75, label=lab,
                    edgecolors="white", linewidths=0.4)
 
-    df_ok = df_res.dropna(subset=["dias_exposicion", "sr_q25"])
-    if len(df_ok) >= 4:
-        x_ok = df_ok["dias_exposicion"].values
-        y_ok = df_ok["sr_q25"].values
-        z = np.polyfit(x_ok, y_ok, 1)
-        y_pred = np.polyval(z, x_ok)
-        ss_res = np.sum((y_ok - y_pred) ** 2)
-        ss_tot = np.sum((y_ok - y_ok.mean()) ** 2)
-        r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+    if tendencia_global_only and z_global is not None and len(df_ok) >= 2:
         xr = np.linspace(df_ok["dias_exposicion"].min(), df_ok["dias_exposicion"].max(), 100)
-        ax.plot(xr, np.polyval(z, xr), "k--", linewidth=1.2, alpha=0.6,
-                label=f"Tendencia ({z[0]:.3f} pp/día, R² = {r2:.3f})")
+        pend_pp = z_global[0]  # %/día = pp/día en escala %
+        sp = f"{pend_pp:.3f}".replace(".", ",")
+        sr2 = f"{r2_global:.3f}".replace(".", ",") if np.isfinite(r2_global) else "—"
+        ax.plot(xr, np.polyval(z_global, xr), "k--", linewidth=1.2, alpha=0.7,
+                label=f"Tendencia ({sp} pp/día, R² = {sr2})")
 
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xlabel("Días de exposición acumulados")
     ax.set_ylabel("SR Q25 (%)")
-    ax.set_title("PV Glasses — SR Q25 vs Días de exposición")
+    titulo = "PV Glasses — SR Q25 vs Días de exposición"
+    if title_suffix:
+        titulo += title_suffix
+    ax.set_title(titulo)
     ax.legend(fontsize=8)
+    if FuncFormatter is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.0f}"))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.1f}".replace(".", ",")))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -789,6 +824,8 @@ def grafico_sr_por_periodo(df_res, df_resumen, out_path):
     ax.set_title("PV Glasses — SR Q25 por período de exposición")
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:3], labels[:3], fontsize=8, loc="lower left")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -866,6 +903,8 @@ def grafico_sr_por_periodo_cajas_por_vidrio(df_res, out_path):
     ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — SR Q25 por período de exposición (caja por vidrio)")
     ax.set_ylim(ymin, 105)
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -929,6 +968,9 @@ def grafico_sr_por_vidrio(df_res, out_path):
     handles = [plt.Line2D([0], [0], marker=MARCADORES[m], color="w", markerfacecolor=colors_m[m], markersize=9)
                for m in ["A", "B", "C"]]
     ax.legend(handles, ["Vidrio A", "Vidrio B", "Vidrio C"], fontsize=9, loc="upper right")
+    if _formatter_coma is not None:
+        axes[0].yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        axes[1].xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, axis="x", alpha=0.3)
 
     fig.suptitle("PV Glasses — SR por vidrio (A=FC5, B=FC4, C=FC3)", fontsize=12, fontweight="bold", y=1.02)
@@ -950,21 +992,36 @@ def grafico_curva_acumulacion(df_resumen, out_path):
     logger.info("CSV curva acumulación (promedio): %s", csv_path)
 
     fig, ax = plt.subplots(figsize=(10, 5))
+    # Tendencia lineal (solo valor para leyenda)
+    x = df["dias_ref"].values.astype(float)
+    y = df["sr_q25"].values.astype(float)
+    label_sr = "SR Q25 ± std"
+    if len(x) >= 2:
+        z = np.polyfit(x, y, 1)
+        r = np.corrcoef(x, y)[0, 1] if len(x) > 2 else np.nan
+        r2 = r ** 2 if not np.isnan(r) else np.nan
+        pend = z[0]
+        sp = f"{pend:.4f}".replace(".", ",")
+        sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+        label_sr += f"\nPendiente: {sp} %/día, R² = {sr2}" if np.isfinite(r2) else f"\nPendiente: {sp} %/día"
     ax.errorbar(df["dias_ref"], df["sr_q25"],
                 yerr=df["sr_std"].fillna(0),
                 fmt="o-", color="#1f77b4", linewidth=1.5,
                 markersize=7, capsize=4, capthick=1.5,
-                label="SR Q25 ± std")
+                label=label_sr)
     for i, (_, row) in enumerate(df.iterrows()):
         dy = 8 if i % 2 == 0 else -10
         ax.annotate(row["periodo"],
                     (row["dias_ref"], row["sr_q25"]),
-                    textcoords="offset points", xytext=(5, dy), fontsize=7)
+                    textcoords="offset points", xytext=(5, dy), fontsize=10)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_xlabel("Días de exposición")
     ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — Curva de acumulación de soiling por período")
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=11)
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -1000,21 +1057,36 @@ def grafico_curva_acumulacion_incertidumbre(df_resumen, out_path):
     logger.info("CSV curva acumulación (incertidumbre): %s", csv_path)
 
     fig, ax = plt.subplots(figsize=(10, 5))
+    # Tendencia lineal (solo valor para leyenda)
+    x = df["dias_ref"].values.astype(float)
+    y = df["sr_q25"].values.astype(float)
+    label_sr = "SR Q25 ± U(SR) (k=2)"
+    if len(x) >= 2:
+        z = np.polyfit(x, y, 1)
+        r = np.corrcoef(x, y)[0, 1] if len(x) > 2 else np.nan
+        r2 = r ** 2 if not np.isnan(r) else np.nan
+        pend = z[0]  # % por día
+        sp = f"{pend:.4f}".replace(".", ",")
+        sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+        label_sr += f"\nPendiente: {sp} %/día, R² = {sr2}" if np.isfinite(r2) else f"\nPendiente: {sp} %/día"
     ax.errorbar(df["dias_ref"], df["sr_q25"],
                 yerr=df["U_SR_pp"].fillna(0),
                 fmt="o-", color="#1f77b4", linewidth=1.5,
                 markersize=7, capsize=4, capthick=1.5,
-                label="SR Q25 ± U(SR) (k=2)")
+                label=label_sr)
     for i, (_, row) in enumerate(df.iterrows()):
         dy = 8 if i % 2 == 0 else -10
         ax.annotate(row["periodo"],
                     (row["dias_ref"], row["sr_q25"]),
                     textcoords="offset points", xytext=(5, dy), fontsize=7)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_xlabel("Días de exposición")
     ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — Curva de acumulación de soiling por período (incertidumbre expandida)")
     ax.legend(fontsize=8)
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -1086,11 +1158,23 @@ def grafico_curva_densidad_incertidumbre(df_res, out_path, unc_csv_path=None):
     logger.info("CSV curva densidad (incertidumbre): %s", csv_path)
 
     fig, ax = plt.subplots(figsize=(10, 5))
+    # Tendencia lineal (solo valor para leyenda)
+    x = df["dias_ref"].values.astype(float)
+    y = df["rho_m_mediana"].values.astype(float)
+    label_rho = "ρm mediana ± U(ρm) (k=2)" if df[U_col].notna().any() else "ρm mediana ± std"
+    if len(x) >= 2:
+        z = np.polyfit(x, y, 1)
+        r = np.corrcoef(x, y)[0, 1] if len(x) > 2 else np.nan
+        r2 = r ** 2 if not np.isnan(r) else np.nan
+        pend = z[0]  # mg/(cm²·día)
+        sp = f"{pend:.4f}".replace(".", ",")
+        sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+        label_rho += f"\nPendiente: {sp} mg/(cm²·día), R² = {sr2}" if np.isfinite(r2) else f"\nPendiente: {sp} mg/(cm²·día)"
     ax.errorbar(df["dias_ref"], df["rho_m_mediana"],
                 yerr=use_err,
                 fmt="o-", color="#2ca02c", linewidth=1.5,
                 markersize=7, capsize=4, capthick=1.5,
-                label="ρm mediana ± U(ρm) (k=2)" if df[U_col].notna().any() else "ρm mediana ± std")
+                label=label_rho)
     for i, (_, row) in enumerate(df.iterrows()):
         # Etiqueta con S mayúscula (Semanal, etc.)
         texto = str(row["periodo"]).capitalize()
@@ -1107,12 +1191,17 @@ def grafico_curva_densidad_incertidumbre(df_res, out_path, unc_csv_path=None):
             xytext = (5, dy)
         ax.annotate(texto,
                     (row["dias_ref"], row["rho_m_mediana"]),
-                    textcoords="offset points", xytext=xytext, fontsize=7)
+                    textcoords="offset points", xytext=xytext, fontsize=10)
     ax.axhline(0, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.set_xlabel("Días de exposición de referencia")
-    ax.set_ylabel("Densidad superficial ρm (mg/cm²)")
-    ax.set_title("PV Glasses — Densidad superficial vs días de exposición (incertidumbre expandida)")
-    ax.legend(fontsize=8)
+    ax.set_xlabel("Días de exposición", fontsize=12)
+    ax.set_ylabel("Densidad superficial ρm (mg/cm²)", fontsize=12)
+    ax.set_title("PV Glasses — Densidad superficial vs días de exposición (incertidumbre expandida)", fontsize=14)
+    ax.legend(fontsize=11)
+    if FuncFormatter is not None:
+        # Eje X: sin decimales (días). Eje Y: 1 decimal (quitar dos ceros).
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.0f}"))
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.1f}".replace(".", ",")))
+    ax.tick_params(axis="both", labelsize=11)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -1164,28 +1253,40 @@ def grafico_curva_acumulacion_por_vidrio(df_res, out_path):
         sub = res[res["muestra"] == muestra].sort_values("dias_ref")
         if sub.empty:
             continue
+        label = labels_m[muestra]
+        if len(sub) >= 2:
+            x = sub["dias_ref"].values.astype(float)
+            y = sub["sr_q25"].values.astype(float)
+            z = np.polyfit(x, y, 1)
+            r = np.corrcoef(x, y)[0, 1] if len(x) > 2 else np.nan
+            r2 = r ** 2 if not np.isnan(r) else np.nan
+            pend = z[0]
+            sp = f"{pend:.4f}".replace(".", ",")
+            sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+            label += f"\nPend: {sp} %/día, R²={sr2}" if np.isfinite(r2) else f"\nPend: {sp} %/día"
         ax.errorbar(
             sub["dias_ref"], sub["sr_q25"],
             yerr=sub["sr_std"].fillna(0),
             fmt=markers_m[muestra] + "-", color=colors_m[muestra], linewidth=1.5,
             markersize=6, capsize=3, capthick=1.2,
-            label=labels_m[muestra],
+            label=label,
         )
     # Etiquetas de período cerca de la curva del vidrio C (más arriba)
     sub_c = res[res["muestra"] == "C"].sort_values("dias_ref")
     for _, row in sub_c.iterrows():
+        dy = 14 if row["periodo"] == "semanal" else 6  # "semanal" un poco más arriba
         ax.annotate(
             row["periodo"],
             (row["dias_ref"], row["sr_q25"]),
-            textcoords="offset points", xytext=(6, 6), fontsize=8, color="#1a1a1a",
+            textcoords="offset points", xytext=(6, dy), fontsize=10, color="#1a1a1a",
             bbox=dict(boxstyle="round,pad=0.2", facecolor="white", edgecolor="none", alpha=0),
         )
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
-    ax.set_xlabel("Días de exposición de referencia")
+    ax.set_xlabel("Días de exposición")
     ax.set_ylabel("SR Q25 (%)")
     ax.set_ylim(ymin, 105)
     ax.set_title("PV Glasses — Curva de acumulación de soiling por período (por vidrio)")
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=11)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -1300,6 +1401,11 @@ def grafico_datos_detalle_por_vidrio(df_res, n_dias_poa, out_path):
         if col == 2:
             ax.legend(loc="upper right", fontsize=7, bbox_to_anchor=(1.22, 1.0))
 
+    if _formatter_coma is not None:
+        for ax in axes.flat:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        for col in range(axes.shape[1]):
+            axes[1, col].xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     fig.suptitle(
         "PV Glasses — Detalle por vidrio (etiquetas: días de exposición en Panel 1; fecha en Panel 2)",
         fontsize=11, fontweight="bold", y=1.02,
@@ -1435,6 +1541,8 @@ def grafico_masa_por_periodo_por_vidrio(df_res, out_path):
     ax.set_xlabel("Período de exposición")
     ax.set_title("PV Glasses — Masa media por período y vidrio")
     ax.legend(fontsize=9, loc="upper right")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -1460,6 +1568,9 @@ def grafico_masa_vs_dias(df_res, out_path):
     ax.set_ylabel("Masa (g)")
     ax.set_title("PV Glasses — Masa del vidrio vs días de exposición")
     ax.legend(fontsize=9)
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -1486,6 +1597,9 @@ def grafico_masa_vs_sr(df_res, out_path):
     ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — Masa del vidrio vs SR Q25")
     ax.legend(fontsize=9)
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -1780,8 +1894,10 @@ def grafico_acumulacion_masa_por_periodo_por_vidrio(df_res, out_path):
     ax.set_xticklabels(periodos_presentes, rotation=25, ha="right", fontsize=9)
     ax.set_ylabel("Acumulación de masa Δm (g)")
     ax.set_xlabel("Período de exposición")
-    ax.set_title("PV Glasses — Acumulación de masa por período y vidrio (Δm = masa final − inicial)")
+    ax.set_title("PV Glasses — Acumulación de masa por período y vidrio (Δm = masa final − inicial)", pad=9)
     ax.axhline(0, color="gray", linewidth=0.8)
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.legend(fontsize=9, loc="upper right")
     ax.grid(True, axis="y", alpha=0.3)
     plt.tight_layout()
@@ -1810,6 +1926,8 @@ def grafico_acumulacion_masa_vs_dias(df_res, out_path):
     ax.set_xlabel("Días de exposición acumulados")
     ax.set_ylabel("Acumulación de masa Δm (g)")
     ax.set_title("PV Glasses — Acumulación de masa vs días de exposición")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -1838,6 +1956,9 @@ def grafico_acumulacion_masa_vs_sr(df_res, out_path):
     ax.set_xlabel("Acumulación de masa Δm (g)")
     ax.set_ylabel("SR Q25 (%)")
     ax.set_title("PV Glasses — Acumulación de masa vs SR Q25")
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -1846,22 +1967,25 @@ def grafico_acumulacion_masa_vs_sr(df_res, out_path):
     logger.info("Gráfico acumulación masa vs SR: %s", out_path)
 
 
-def grafico_sr_vs_masa_area(df_res, out_path, area_cm2=None):
+def grafico_sr_vs_masa_area(df_res, out_path, area_cm2=None, title_suffix=None, tendencia_global_only=False):
     """
     Figura clave: scatter SR Q25 vs densidad de masa superficial ρm (mg/cm²)
-    para cada vidrio y período. ρm = Δm/área. Objetivo: correlacionar pérdidas ópticas
-    con deposición. Incluye regresión lineal con R² y pendiente (descriptivo).
+    para cada vidrio y período. ρm = Δm/área. title_suffix se añade al subtítulo (ej. promedio por grupo).
+    Si tendencia_global_only=True, se dibuja solo la línea de ajuste global (tendencia promedio) y la caja R²/pendiente.
     """
     if area_cm2 is None:
         area_cm2 = AREA_VIDRIO_CM2
     # Eje x: siempre densidad ρm = masa/área (mg/cm²), no masa absoluta
-    use_delta = "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any()
-    if use_delta:
-        df_ok = df_res.dropna(subset=["delta_m_g", "sr_q25"]).copy()
-        df_ok["masa_area_mg_cm2"] = (df_ok["delta_m_g"] * 1000.0) / area_cm2
+    if "masa_area_mg_cm2" in df_res.columns and df_res["masa_area_mg_cm2"].notna().any():
+        df_ok = df_res.dropna(subset=["masa_area_mg_cm2", "sr_q25"]).copy()
     else:
-        df_ok = df_res.dropna(subset=["masa_g", "sr_q25"]).copy()
-        df_ok["masa_area_mg_cm2"] = (df_ok["masa_g"] * 1000.0) / area_cm2
+        use_delta = "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any()
+        if use_delta:
+            df_ok = df_res.dropna(subset=["delta_m_g", "sr_q25"]).copy()
+            df_ok["masa_area_mg_cm2"] = (df_ok["delta_m_g"] * 1000.0) / area_cm2
+        else:
+            df_ok = df_res.dropna(subset=["masa_g", "sr_q25"]).copy()
+            df_ok["masa_area_mg_cm2"] = (df_ok["masa_g"] * 1000.0) / area_cm2
     xlabel = "Densidad de masa superficial ρm (mg/cm²)"
     titulo_suffix = "densidad de masa superficial ρm"
 
@@ -1869,49 +1993,70 @@ def grafico_sr_vs_masa_area(df_res, out_path, area_cm2=None):
         logger.warning("Sin datos para SR vs masa/área.")
         return None
 
+    colors_m = {"A": "#E53935", "B": "#1E88E5", "C": "#43A047"}
+    markers = {"A": "o", "B": "s", "C": "^"}
     x = df_ok["masa_area_mg_cm2"].values
     y = df_ok["sr_q25"].values
     n = len(x)
     if n < 2:
         logger.warning("Pocos puntos para regresión SR vs masa/área.")
-        r2, pendiente, intercept = np.nan, np.nan, np.nan
+        r2_global, pendiente_global, intercept_global = np.nan, np.nan, np.nan
     else:
         coef = np.polyfit(x, y, 1)
-        pendiente, intercept = coef[0], coef[1]
+        pendiente_global, intercept_global = coef[0], coef[1]
         y_pred = np.polyval(coef, x)
         ss_res = np.sum((y - y_pred) ** 2)
         ss_tot = np.sum((y - np.mean(y)) ** 2)
-        r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+        r2_global = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
 
-    colors_m = {"A": "#E53935", "B": "#1E88E5", "C": "#43A047"}
-    markers = {"A": "o", "B": "s", "C": "^"}
     fig, ax = plt.subplots(figsize=(8, 6))
     for muestra, grupo in df_ok.groupby("muestra"):
+        g = grupo.dropna(subset=["masa_area_mg_cm2", "sr_q25"])
+        lab = f"Vidrio {muestra}"
+        if not tendencia_global_only and len(g) >= 2:
+            xg = g["masa_area_mg_cm2"].values.astype(float)
+            yg = g["sr_q25"].values.astype(float)
+            coef = np.polyfit(xg, yg, 1)
+            pend, intercept = coef[0], coef[1]
+            y_pred_g = np.polyval(coef, xg)
+            ss_res = np.sum((yg - y_pred_g) ** 2)
+            ss_tot = np.sum((yg - np.mean(yg)) ** 2)
+            r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else np.nan
+            sp = f"{pend:.4f}".replace(".", ",")
+            sr2 = f"{r2:.3f}".replace(".", ",") if np.isfinite(r2) else "—"
+            lab += f"\nPend: {sp} %/(mg/cm²), R² = {sr2}"
+            x_line = np.linspace(xg.min(), xg.max(), 50)
+            ax.plot(x_line, np.polyval(coef, x_line), "-", color=colors_m.get(muestra, "gray"), linewidth=1.5, alpha=0.8)
         ax.scatter(
-            grupo["masa_area_mg_cm2"], grupo["sr_q25"],
+            g["masa_area_mg_cm2"], g["sr_q25"],
             c=colors_m.get(muestra, "gray"), marker=markers.get(muestra, "o"),
-            s=60, alpha=0.85, label=f"Vidrio {muestra}", edgecolors="white", linewidths=0.5,
+            s=60, alpha=0.85, label=lab, edgecolors="white", linewidths=0.5,
         )
-    if n >= 2 and not np.isnan(pendiente):
+    # Tendencia promedio (una sola línea): solo cuando tendencia_global_only=True (sin caja, ya está en leyenda)
+    if tendencia_global_only and n >= 2 and np.isfinite(pendiente_global) and np.isfinite(r2_global):
         x_line = np.linspace(x.min(), x.max(), 50)
-        ax.plot(x_line, np.polyval([pendiente, intercept], x_line), "k-", linewidth=1.5,
-                label=f"Ajuste: R² = {r2:.3f}, pendiente = {pendiente:.4f} %/(mg/cm²)")
+        ax.plot(x_line, np.polyval([pendiente_global, intercept_global], x_line), "k-", linewidth=1.5,
+                label=f"Ajuste: R² = {r2_global:.3f}".replace(".", ",") + f", pendiente = {pendiente_global:.3f}".replace(".", ",") + " %/(mg/cm²)")
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.5)
     ax.set_xlabel(xlabel, fontsize=11)
     ax.set_ylabel("SR Q25 (%)", fontsize=11)
-    ax.set_title(f"PV Glasses — SR Q25 vs {titulo_suffix}\n(cada punto: vidrio × período; ρm = Δm/área)")
+    subtit = "(cada punto: vidrio × período; ρm = Δm/área)"
+    if title_suffix:
+        subtit = title_suffix
+    ax.set_title(f"PV Glasses — SR Q25 vs {titulo_suffix}\n{subtit}")
     ax.legend(fontsize=9)
+    if _formatter_coma is not None:
+        ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+        if tendencia_global_only:
+            ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.1f}".replace(".", ",")))
+        else:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, alpha=0.3)
-    if n >= 2 and not np.isnan(r2):
-        ax.text(0.95, 0.95, f"R² = {r2:.3f}\npendiente = {pendiente:.4f} %/(mg/cm²)",
-                transform=ax.transAxes, fontsize=10, verticalalignment="top",
-                horizontalalignment="right",
-                bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.8))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close()
     logger.info("Gráfico SR vs masa/área: %s", out_path)
-    return {"r2": r2, "pendiente": pendiente, "n": n} if n >= 2 else None
+    return {"r2": r2_global, "pendiente": pendiente_global, "n": n} if n >= 2 else None
 
 
 # ---------------------------------------------------------------------------
@@ -2068,6 +2213,9 @@ def grafico_q25_y_mediana(df_res, df_resumen, out_path):
     ax.set_xticklabels(periodos_presentes, rotation=25, ha="right", fontsize=9)
     ax.set_ylabel("Pérdida (pp, desde Q25)")
     ax.set_title("Pérdida de SR por período")
+    if _formatter_coma is not None:
+        for ax in axes.flat:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(True, axis="y", alpha=0.3)
 
     fig.suptitle(
@@ -2271,6 +2419,11 @@ def run(cal_csv, poa_csv, out_dir):
     if MATPLOTLIB_AVAILABLE:
         grafico_sr_vs_dias(
             df_res, os.path.join(out_dir, "pv_glasses_sr_vs_dias.png"))
+        grafico_sr_vs_dias(
+            df_res,
+            os.path.join(out_dir, "pv_glasses_sr_vs_dias_puntual.png"),
+            title_suffix=" (cada punto: medición individual; tendencia global)",
+            tendencia_global_only=True)
         grafico_sr_por_periodo(
             df_res, df_resumen,
             os.path.join(out_dir, "pv_glasses_sr_por_periodo.png"))
@@ -2282,6 +2435,33 @@ def run(cal_csv, poa_csv, out_dir):
             os.path.join(out_dir, "pv_glasses_sr_por_vidrio.png"))
         subdir_promedio = os.path.join(out_dir, "promedio")
         os.makedirs(subdir_promedio, exist_ok=True)
+        # Promedio por grupo de vidrio (periodo × muestra): un punto por (periodo, vidrio)
+        df_agg_dias = df_res.dropna(subset=["dias_exposicion", "sr_q25"]).groupby(
+            ["periodo", "muestra"], as_index=False
+        ).agg(dias_exposicion=("dias_exposicion", "mean"), sr_q25=("sr_q25", "mean"))
+        if not df_agg_dias.empty:
+            grafico_sr_vs_dias(
+                df_agg_dias,
+                os.path.join(subdir_promedio, "pv_glasses_sr_vs_dias.png"),
+                title_suffix=" (promedio por grupo de vidrio)")
+        use_delta = "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any()
+        if use_delta or "masa_g" in df_res.columns:
+            area_cm2 = AREA_VIDRIO_CM2
+            df_m = df_res.copy()
+            if use_delta:
+                df_m["masa_area_mg_cm2"] = (df_m["delta_m_g"] * 1000.0) / area_cm2
+            else:
+                df_m["masa_area_mg_cm2"] = (df_m["masa_g"] * 1000.0) / area_cm2
+            df_agg_masa = df_m.dropna(subset=["masa_area_mg_cm2", "sr_q25"]).groupby(
+                ["periodo", "muestra"], as_index=False
+            ).agg(masa_area_mg_cm2=("masa_area_mg_cm2", "mean"), sr_q25=("sr_q25", "mean"))
+            if not df_agg_masa.empty:
+                grafico_sr_vs_masa_area(
+                    df_agg_masa,
+                    os.path.join(subdir_promedio, "pv_glasses_sr_vs_masa_area.png"),
+                    area_cm2=area_cm2,
+                    title_suffix="(cada punto: promedio por grupo de vidrio; ρm = Δm/área)",
+                    tendencia_global_only=True)
         grafico_curva_acumulacion(
             df_resumen, os.path.join(subdir_promedio, "pv_glasses_curva_acumulacion.png"))
         grafico_curva_acumulacion_incertidumbre(
@@ -2311,6 +2491,12 @@ def run(cal_csv, poa_csv, out_dir):
             df_res, os.path.join(out_dir, "pv_glasses_masa_vs_sr.png"))
         correlacion_masa_area = grafico_sr_vs_masa_area(
             df_res, os.path.join(out_dir, "pv_glasses_sr_vs_masa_area.png"))
+        # Versión con todos los puntos individuales (sin promediar por vidrio) y solo tendencia global
+        grafico_sr_vs_masa_area(
+            df_res,
+            os.path.join(out_dir, "pv_glasses_sr_vs_masa_area_tendencia_global.png"),
+            title_suffix="(cada punto: medición individual; tendencia global)",
+            tendencia_global_only=True)
         if "delta_m_g" in df_res.columns and df_res["delta_m_g"].notna().any():
             grafico_acumulacion_masa_por_periodo_por_vidrio(
                 df_res, os.path.join(out_dir, "pv_glasses_acumulacion_masa_por_periodo_por_vidrio.png"))

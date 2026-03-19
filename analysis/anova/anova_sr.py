@@ -1,8 +1,8 @@
 """
-ANOVA de un factor sobre el SR semanal Q25 normalizado.
+ANOVA de un factor sobre el SR semanal Q25 (normalizado t₀=100% excepto IV600 Pmax/Isc en valor absoluto).
 
-Pregunta: ¿Existe diferencia estadísticamente significativa en el SR normalizado
-medio entre los distintos instrumentos de medición de soiling?
+Pregunta: ¿Existe diferencia estadísticamente significativa en el SR medio
+entre los distintos instrumentos de medición de soiling?
 
 Flujo:
   1. Carga sr_semanal_norm_largo.csv  (semana, instrumento, sr_norm)
@@ -50,6 +50,7 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.colors as mcolors
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -58,9 +59,15 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos=None):
+        return f"{x:.1f}".replace(".", ",")
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    FuncFormatter = None
+    _formatter_coma = None
 
 ALPHA = 0.05
 
@@ -169,14 +176,16 @@ def grafico_violin(df_pool, df_inter, out_path):
         ax.set_xticklabels(instrumentos, rotation=20, ha="right", fontsize=14)
         ax.axhline(100, color="gray", linestyle="--", linewidth=0.8, alpha=0.6)
         ax.set_ylim(y_min, y_max)
+        if _formatter_coma is not None:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
         ax.set_title(title, fontsize=15)
         ax.grid(True, axis="y", alpha=0.3)
         ax.tick_params(axis="both", labelsize=13)
-    axes[0].set_ylabel("SR normalizado (%)", fontsize=15)
+    axes[0].set_ylabel("SR (%)", fontsize=15)
     axes[0].tick_params(axis="y", labelleft=True)
     axes[1].tick_params(axis="y", labelleft=False)
     axes[1].set_ylabel("")
-    fig.suptitle("Distribución del SR semanal Q25 normalizado por instrumento",
+    fig.suptitle("Distribución del SR semanal Q25 por instrumento (IV600 Pmax/Isc valor absoluto)",
                  fontsize=17, fontweight="bold")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -208,13 +217,15 @@ def _heatmap_pvalores(matrix_df, title, out_path, instrumentos=None):
                 txt = "—"
                 color = "gray"
             else:
-                txt = f"{val:.3f}"
+                txt = f"{val:.3f}".replace(".", ",")
                 rgba = cmap(norm(np.clip(float(val), 0, 0.2)))
                 lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 color = "black" if lum > 0.55 else "white"
             ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
-    plt.colorbar(im, ax=ax, label="p-valor ajustado")
+    cbar = plt.colorbar(im, ax=ax, label="p-valor ajustado")
+    if _formatter_coma is not None:
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.3f}".replace(".", ",")))
     ax.set_title(title, fontsize=11, fontweight="bold")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -254,11 +265,11 @@ def interpretar(p, test):
 
 def generar_reporte(conjuntos, out_path):
     lines = [
-        "# Análisis ANOVA — SR Semanal Q25 Normalizado",
+        "# Análisis ANOVA — SR Semanal Q25 (t₀=100%; IV600 Pmax/Isc valor absoluto)",
         "",
-        "**Variable dependiente:** SR semanal Q25 normalizado a t₀ = 100%  ",
+        "**Variable dependiente:** SR semanal Q25 (t₀=100% excepto IV600 Pmax/Isc valor absoluto)  ",
         f"**Nivel de significancia:** α = {ALPHA}  ",
-        "**Factor:** instrumento (Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600, IV600 corr)",
+        "**Factor:** instrumento (Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600 Pmax, IV600 Isc)",
         "",
     ]
 
@@ -349,7 +360,7 @@ def generar_reporte(conjuntos, out_path):
         "---",
         "## Conclusión general",
         "",
-        "El análisis ANOVA sobre los datos normalizados evalúa si los instrumentos",
+        "El análisis ANOVA evalúa si los instrumentos",
         "evolucionan de forma estadísticamente equivalente una vez eliminado el sesgo",
         "de nivel absoluto. Un resultado significativo indica que la **tasa de cambio**",
         "del SR difiere entre instrumentos, lo que implica que no son intercambiables",

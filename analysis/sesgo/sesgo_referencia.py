@@ -1,7 +1,7 @@
 """
 Sesgo de cada metodología respecto a una única referencia: PVStand Isc (SR por Isc).
 
-Usa SR semanal Q25 normalizado (sr_semanal_norm.csv). Para cada método se calcula
+Usa SR semanal Q25 (sr_semanal_norm.csv; IV600 Pmax/Isc valor absoluto). Para cada método se calcula
 el error con signo e_i = SR_m,i - SR_PVStand Isc,i solo en semanas comunes (sin rellenar NaN).
 Métricas: MBE, mediana del error, P25, P75, SD del error, RMSE; opcional MBE%.
 
@@ -28,6 +28,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -36,9 +37,15 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos=None):
+        return f"{x:.2f}".replace(".", ",")
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    FuncFormatter = None
+    _formatter_coma = None
 
 REFERENCIA = "PVStand Isc"
 
@@ -179,7 +186,10 @@ def grafico_barras_mbe(tabla, out_path):
     ax.set_xticks(x)
     ax.set_xticklabels(tabla["metodo_evaluado"], rotation=35, ha="right", fontsize=9)
     ax.set_ylabel("MBE (pp)")
-    ax.set_title(f"Sesgo medio respecto a {REFERENCIA}\n(SR semanal Q25 normalizado)")
+    if FuncFormatter is not None:
+        # Eje Y sin decimales (quitar dos ceros)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda x, pos: f"{x:.0f}"))
+    ax.set_title(f"Sesgo medio respecto a {REFERENCIA}\n(SR semanal Q25; IV600 Pmax/Isc valor absoluto)")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -200,6 +210,8 @@ def grafico_error_vs_semana(df, out_path):
     ax.axhline(0, color="black", linewidth=0.8, linestyle="--")
     ax.set_ylabel("Error (pp)")
     ax.set_xlabel("Semana")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.set_title(f"Error con signo (SR_m − SR_{{{REFERENCIA}}}) por semana",
                  fontsize=11, fontweight="bold")
     ax.legend(fontsize=8, loc="best")

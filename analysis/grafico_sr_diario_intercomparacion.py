@@ -1,10 +1,10 @@
 """
 Gráfico de intercomparación: SR diario de todos los módulos + PV Glasses (puntos por evento).
 
-- Todas las series van normalizadas (primer valor = 100%).
+- Series normalizadas (primer valor = 100%): Soiling Kit, DustIQ, RefCells, PVStand (Pmax e Isc).
+- IV600 (Pmax e Isc): sin normalizar (SR en valor absoluto %).
 - Datos dibujados con puntos o estrellas (markers).
-- Líneas + markers: SR diario de Soiling Kit, DustIQ, RefCells, PVStand (Pmax e Isc), IV600 (Pmax e Isc).
-- Puntos: PV Glasses = mismos datos que pv_glasses_curva_acumulacion_por_vidrio: por (periodo, muestra) Q25(sr_q25), posicionados en fecha = ref_start + dias_ref (dias_ref como en DIAS_REFERENCIA); sin normalizar.
+- Puntos: PV Glasses = mismos datos que pv_glasses_curva_acumulacion_por_vidrio: por (periodo, muestra) Q25(sr_q25), posicionados en fecha = ref_start + dias_ref; sin normalizar.
 
 Salida: analysis/intercomparacion_sr_diario.png y analysis/intercomparacion_sr_diario_corr.png
 
@@ -132,7 +132,7 @@ def run(project_root=None, output_path=None, use_corr_series=False):
     icolor = 0
     ref_start = None  # fecha de inicio para mapear dias_ref -> fecha (PV Glasses)
 
-    # --- Líneas + puntos/estrellas: SR diario por módulo (normalizado: primer valor = 100%) ---
+    # --- Líneas + puntos/estrellas: SR diario por módulo (normalizado 100% excepto IV600 = valor absoluto) ---
     for label, rel_path, columns in series_config:
         path = os.path.join(project_root, rel_path)
         if not os.path.isfile(path):
@@ -155,12 +155,11 @@ def run(project_root=None, output_path=None, use_corr_series=False):
             y = y[y >= 80]  # mismo umbral que el pipeline
             if y.empty or y.iloc[0] == 0:
                 continue
-            # IV600: borrar primer dato y normalizar por el siguiente
+            # IV600 (Pmax e Isc): sin normalizar — mantener SR en valor absoluto
             if "IV600" in label:
-                y = y.iloc[1:]
-                if y.empty or y.iloc[0] == 0:
-                    continue
-            y_norm = 100.0 * y / y.iloc[0]  # normalizado por primer valor
+                y_norm = y.copy()
+            else:
+                y_norm = 100.0 * y / y.iloc[0]  # normalizado por primer valor
             color = colors_line[icolor % len(colors_line)]
             marker = MARKERS[icolor % len(MARKERS)]
             icolor += 1

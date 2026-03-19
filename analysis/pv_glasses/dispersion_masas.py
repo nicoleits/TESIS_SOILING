@@ -23,6 +23,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -31,8 +32,14 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos):
+        """Formatear número con coma decimal para ejes (1 decimal, sin ceros de más)."""
+        return f"{x:.1f}".replace(".", ",")
 except ImportError:
     plt = None
+    FuncFormatter = None
+    _formatter_coma = None
 
 # Área del vidrio (cm²): 4×3 cm. Densidad de masa superficial ρm = Δm / área (mg/cm²).
 AREA_VIDRIO_CM2 = 12.0
@@ -232,6 +239,8 @@ def grafico_barras_error(df, df_disp, out_path):
     ax.set_xlabel("Periodo de exposición")
     ax.set_title("Dispersión del soiling por periodo (método gravimétrico)\nρm = Δm/12 (mg/cm²), media (A+B+C)/3 ± desv. estándar")
     ax.set_ylim(0, max(medias + stds) * 1.2 if len(medias) else 5)
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(axis="y", alpha=0.5)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -256,6 +265,8 @@ def grafico_boxplot_desde_df(df, out_path):
     ax.set_ylabel("Densidad de masa superficial ρm (mg/cm²)")
     ax.set_xlabel("Periodo de exposición")
     ax.set_title("Dispersión del soiling por periodo (método gravimétrico)\nρm = Δm/12")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.xticks(rotation=15, ha="right")
     ax.grid(axis="y", alpha=0.5)
     plt.tight_layout()
@@ -281,6 +292,8 @@ def grafico_barras_error_sin_promedio(df_disp, out_path):
     ax.set_xlabel("Periodo de exposición")
     ax.set_title("Dispersión del soiling por periodo (sin promediar vidrios)\nρm = Δm/12, un valor por vidrio por evento")
     ax.set_ylim(0, max(medias + stds) * 1.2 if len(medias) else 5)
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(axis="y", alpha=0.5)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -305,6 +318,8 @@ def grafico_boxplot_sin_promedio(df_long, out_path):
     ax.set_ylabel("Densidad de masa superficial ρm (mg/cm²)")
     ax.set_xlabel("Periodo de exposición")
     ax.set_title("Dispersión del soiling por periodo (sin promediar vidrios)\nρm = Δm/12, un valor por vidrio")
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.xticks(rotation=15, ha="right")
     ax.grid(axis="y", alpha=0.5)
     plt.tight_layout()

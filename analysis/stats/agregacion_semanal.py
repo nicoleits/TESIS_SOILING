@@ -30,6 +30,7 @@ try:
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -38,9 +39,14 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+    # Formateador explícito coma decimal, siempre 1 decimal (100 → "100,0", 97,5 → "97,5")
+    def _formatter_coma(x, pos=None):
+        return ("%.1f" % x).replace(".", ",")
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    FuncFormatter = None
+    _formatter_coma = None
 
 try:
     from analysis.config import PERIODO_ANALISIS_INICIO, PERIODO_ANALISIS_FIN, REFCELLS_FECHA_MAX
@@ -53,6 +59,11 @@ try:
     from analysis.uncertainty.sr_metodologias import U_pp_por_metodologia
 except ImportError:
     U_pp_por_metodologia = None
+
+# Instrumentos que no se normalizan a 100%: se mantienen en SR absoluto (%). IV600 Pmax e Isc.
+NO_NORMALIZAR_IV600 = {"IV600 Pmax", "IV600 Isc"}
+# PV Glasses: se excluye de los gráficos/CSV principales; se generan versiones _completo con todos.
+INSTRUMENTO_PV_GLASSES = "PV Glasses"
 
 # ---------------------------------------------------------------------------
 # Configuración: (nombre_display, ruta_csv, columna_SR, fecha_max_override).
@@ -228,6 +239,8 @@ def grafico_series_semanales(df_ancho, out_path):
     ax.legend(loc="lower left", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(bottom=80)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -290,6 +303,8 @@ def grafico_series_con_barras_error(datos_por_instrumento, out_path):
         ax.grid(True, alpha=0.25)
         ax.set_ylim(y_min, y_max)  # eje Y estandarizado para todos los subplots
         ax.legend(fontsize=7, loc="lower left")
+        if _formatter_coma is not None and FuncFormatter is not None:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
 
     # ocultar subplots vacíos
     for j in range(n_inst, len(axes)):
@@ -314,13 +329,15 @@ def grafico_norm_superpuesto(datos_norm, out_path):
                 linewidth=1.3, markersize=3, label=nombre, alpha=0.85)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
     ax.set_xlabel("Semana (inicio lunes)")
-    ax.set_ylabel("SR normalizado (%)")
-    ax.set_title("SR Semanal Q25 Normalizado (t₀ = 100%) — todos los instrumentos")
+    ax.set_ylabel("SR (%)")
+    ax.set_title("SR Semanal Q25 (t₀=100% normalizado; IV600 Pmax/Isc en valor absoluto)")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     fig.autofmt_xdate()
     ax.legend(loc="lower left", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -339,14 +356,17 @@ def grafico_norm_superpuesto_sombra(datos_norm, out_path):
         ax.fill_between(q25_n.index, q25_n.values - errs, q25_n.values + errs,
                         alpha=0.12, color=color)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
-    ax.set_xlabel("Fecha")
-    ax.set_ylabel("SR (%)")
-    ax.set_title("SR Semanal Q25 Normalizado ± std (t₀ = 100%) — todos los instrumentos")
+    ax.set_xlabel("Fecha", fontsize=13)
+    ax.set_ylabel("SR (%)", fontsize=13)
+    ax.set_title("SR Semanal Q25 Normalizado ± std (t₀=100%) — todos los instrumentos", fontsize=15, pad=10)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     fig.autofmt_xdate()
-    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.legend(loc="lower left", fontsize=11, ncol=2)
+    ax.tick_params(axis="both", labelsize=11)
     ax.grid(True, alpha=0.3)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -406,16 +426,19 @@ def grafico_norm_superpuesto_incertidumbre(datos_norm, out_path, uncertainty_pp_
         ax.plot(q25_n.index, q25_n.values, "o-", color=color,
                 linewidth=1.5, markersize=4, label=nombre, alpha=0.9, zorder=2)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%", zorder=1)
-    ax.set_xlabel("Fecha")
-    ax.set_ylabel("SR (%)")
+    ax.set_xlabel("Fecha", fontsize=12)
+    ax.set_ylabel("SR (%)", fontsize=12)
     ax.set_ylim(y_min, y_max)
     # pad: separación título–eje en puntos; +6 pt ≈ 2 mm para subir el título
-    ax.set_title("SR Semanal Q25 Normalizado ± U(SR) (t₀ = 100%) — incertidumbre expandida [pp]", pad=12)
+    ax.set_title("SR Semanal Q25 (t₀=100% norm.; IV600 Pmax/Isc valor absoluto) ± U(SR) [pp]", pad=12, fontsize=14)
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     fig.autofmt_xdate()
-    ax.legend(loc="lower left", fontsize=8, ncol=2)
+    ax.tick_params(axis="both", labelsize=11)
+    ax.legend(loc="lower left", fontsize=11, ncol=2)
     ax.grid(True, alpha=0.3)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -443,12 +466,14 @@ def grafico_norm_superpuesto_barras_incertidumbre(datos_norm, out_path, uncertai
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6, label="SR = 100%")
     ax.set_xlabel("Fecha")
     ax.set_ylabel("SR (%)")
-    ax.set_title("SR Semanal Q25 Normalizado ± U(SR) (t₀ = 100%) — barras = incertidumbre expandida [pp]")
+    ax.set_title("SR Semanal Q25 (t₀=100% norm.; IV600 Pmax/Isc valor absoluto) ± U(SR) [pp]")
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m"))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     fig.autofmt_xdate()
     ax.legend(loc="lower left", fontsize=8, ncol=2)
     ax.grid(True, alpha=0.3)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -497,11 +522,13 @@ def grafico_norm_barras_t(datos_norm, out_path):
         ax.grid(True, alpha=0.25)
         ax.set_ylim(y_min, y_max)
         ax.legend(fontsize=7, loc="lower left")
+        if _formatter_coma is not None and FuncFormatter is not None:
+            ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
 
     for j in range(n_inst, len(axes)):
         axes[j].set_visible(False)
 
-    fig.suptitle("SR Semanal Q25 Normalizado (t₀ = 100%) ± std — por instrumento",
+    fig.suptitle("SR Semanal Q25 (t₀=100% norm.; IV600 Pmax/Isc valor absoluto) ± std — por instrumento",
                  fontsize=12, fontweight="bold", y=1.01)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -528,6 +555,8 @@ def grafico_boxplot_dispersion(df_largo, out_path):
     ax.set_ylim(bottom=80)
     plt.xticks(rotation=20, ha="right")
     ax.grid(True, axis="y", alpha=0.3)
+    if _formatter_coma is not None and FuncFormatter is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -561,9 +590,15 @@ def run(sr_dir, out_dir):
             n = n.iloc[:-1] if n is not None else n
         series_semanales[nombre] = semanal
         datos_con_std[nombre] = (q25, std, n)
-        q25_n, std_n = normalizar_desde_inicio(q25, std)
-        if q25_n is not None:
+        if nombre in NO_NORMALIZAR_IV600:
+            # IV600 Pmax e Isc: sin normalizar (SR en valor absoluto %)
+            q25_n = q25.copy()
+            std_n = std.copy() if std is not None else pd.Series(0.0, index=q25.index)
             datos_norm[nombre] = (q25_n, std_n)
+        else:
+            q25_n, std_n = normalizar_desde_inicio(q25, std)
+            if q25_n is not None:
+                datos_norm[nombre] = (q25_n, std_n)
         disp = dispersion_entre_semanas(semanal, nombre)
         if disp:
             disp_rows.append(disp)
@@ -600,16 +635,27 @@ def run(sr_dir, out_dir):
         q25_0 = float(q25.dropna().iloc[0])
         if q25_0 < 1e-9:
             continue
-        if U_pp_por_metodologia is not None:
-            U_pp = U_pp_por_metodologia(nombre, q25.values)
-            u_norm = np.where(np.isfinite(U_pp), U_pp * (100.0 / q25_0), 0.0)
-            datos_u_pp_orig[nombre] = pd.Series(np.where(np.isfinite(U_pp), U_pp, np.nan), index=q25.index)
+        if nombre in NO_NORMALIZAR_IV600:
+            # IV600 Pmax/Isc: SR sin normalizar → U en pp, misma escala que el eje Y (valor absoluto %)
+            if U_pp_por_metodologia is not None:
+                U_pp = U_pp_por_metodologia(nombre, q25.values)
+                datos_u_pp_orig[nombre] = pd.Series(np.where(np.isfinite(U_pp), U_pp, np.nan), index=q25.index)
+            else:
+                u_by_name = _cargar_incertidumbre_u_pp(project_root)
+                u_const = u_by_name.get(nombre, 0.5)
+                datos_u_pp_orig[nombre] = pd.Series(np.full(len(q25), u_const), index=q25.index)
+            datos_u_pp_norm[nombre] = datos_u_pp_orig[nombre].copy()
         else:
-            u_by_name = _cargar_incertidumbre_u_pp(project_root)
-            u_const = u_by_name.get(nombre, 0.5)
-            u_norm = np.full(len(q25), u_const * (100.0 / q25_0))
-            datos_u_pp_orig[nombre] = pd.Series(np.full(len(q25), u_const), index=q25.index)
-        datos_u_pp_norm[nombre] = pd.Series(u_norm, index=q25.index)
+            if U_pp_por_metodologia is not None:
+                U_pp = U_pp_por_metodologia(nombre, q25.values)
+                u_norm = np.where(np.isfinite(U_pp), U_pp * (100.0 / q25_0), 0.0)
+                datos_u_pp_orig[nombre] = pd.Series(np.where(np.isfinite(U_pp), U_pp, np.nan), index=q25.index)
+            else:
+                u_by_name = _cargar_incertidumbre_u_pp(project_root)
+                u_const = u_by_name.get(nombre, 0.5)
+                u_norm = np.full(len(q25), u_const * (100.0 / q25_0))
+                datos_u_pp_orig[nombre] = pd.Series(np.full(len(q25), u_const), index=q25.index)
+            datos_u_pp_norm[nombre] = pd.Series(u_norm, index=q25.index)
 
     # --- CSV formato ancho (original)
     df_ancho = pd.DataFrame(series_semanales)
@@ -662,27 +708,42 @@ def run(sr_dir, out_dir):
     df_incert.to_csv(path_incert, index=False)
     logger.info("CSV gráfico incertidumbre: %s", path_incert)
 
-    # --- CSV dispersión
+    # --- CSV dispersión: principal sin PV Glasses, _completo con todos
     df_disp = pd.DataFrame(disp_rows).round(4)
-    df_disp.to_csv(os.path.join(out_dir, "dispersion_semanal.csv"), index=False)
-    logger.info("CSV dispersión: %s", os.path.join(out_dir, "dispersion_semanal.csv"))
+    df_disp_sin_pg = df_disp[df_disp["instrumento"] != INSTRUMENTO_PV_GLASSES]
+    df_disp_sin_pg.to_csv(os.path.join(out_dir, "dispersion_semanal.csv"), index=False)
+    logger.info("CSV dispersión (sin PV Glasses): %s", os.path.join(out_dir, "dispersion_semanal.csv"))
+    df_disp.to_csv(os.path.join(out_dir, "dispersion_semanal_completo.csv"), index=False)
+    logger.info("CSV dispersión completo: %s", os.path.join(out_dir, "dispersion_semanal_completo.csv"))
 
-    # --- Gráficos
+    # --- Gráficos (principal sin PV Glasses; _completo con todos los instrumentos)
     if MATPLOTLIB_AVAILABLE:
+        datos_norm_sin_pg = {k: v for k, v in datos_norm.items() if k != INSTRUMENTO_PV_GLASSES}
+        datos_u_pp_norm_sin_pg = {k: v for k, v in datos_u_pp_norm.items() if k != INSTRUMENTO_PV_GLASSES}
+        df_largo_sin_pg = df_largo[df_largo["instrumento"] != INSTRUMENTO_PV_GLASSES]
+
         grafico_series_semanales(df_ancho, os.path.join(out_dir, "sr_semanal_q25.png"))
-        grafico_boxplot_dispersion(df_largo, os.path.join(out_dir, "dispersion_semanal.png"))
+        grafico_boxplot_dispersion(df_largo_sin_pg, os.path.join(out_dir, "dispersion_semanal.png"))
+        grafico_boxplot_dispersion(df_largo, os.path.join(out_dir, "dispersion_semanal_completo.png"))
         grafico_series_con_barras_error(datos_con_std,
                                         os.path.join(out_dir, "sr_semanal_barras_t.png"))
         grafico_norm_superpuesto(datos_norm,
                                  os.path.join(out_dir, "sr_semanal_norm.png"))
-        grafico_norm_superpuesto_sombra(datos_norm,
+        grafico_norm_superpuesto_sombra(datos_norm_sin_pg,
                                         os.path.join(out_dir, "sr_semanal_norm_sombra.png"))
+        grafico_norm_superpuesto_sombra(datos_norm,
+                                        os.path.join(out_dir, "sr_semanal_norm_sombra_completo.png"))
         grafico_norm_barras_t(datos_norm,
                               os.path.join(out_dir, "sr_semanal_norm_barras_t.png"))
-        # Gráfico mismo layout pero bandas = ± U(SR) [pp] por semana (propagación según valor)
+        # Incertidumbre: principal sin PV Glasses, _completo con todos
+        grafico_norm_superpuesto_incertidumbre(
+            datos_norm_sin_pg,
+            os.path.join(out_dir, "sr_semanal_norm_incertidumbre.png"),
+            datos_u_pp_norm_sin_pg,
+        )
         grafico_norm_superpuesto_incertidumbre(
             datos_norm,
-            os.path.join(out_dir, "sr_semanal_norm_incertidumbre.png"),
+            os.path.join(out_dir, "sr_semanal_norm_incertidumbre_completo.png"),
             datos_u_pp_norm,
         )
         grafico_norm_superpuesto_barras_incertidumbre(

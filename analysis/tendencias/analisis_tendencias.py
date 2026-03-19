@@ -1,7 +1,7 @@
 """
 Análisis de tendencias del SR semanal: regresión lineal por metodología.
 
-Para cada metodología se ajusta SR semanal Q25 normalizado (t₀=100%) vs tiempo
+Para cada metodología se ajusta SR semanal Q25 (t₀=100% norm.; IV600 Pmax/Isc valor absoluto) vs tiempo
 (semana 0, 1, 2, ...). La pendiente indica la tasa de cambio promedio (% por semana):
   - Pendiente negativa: tendencia a la baja (soiling acumulado).
   - Pendiente ≈ 0: estable.
@@ -126,17 +126,23 @@ def run(norm_csv_path, out_dir):
         logger.error("No se pudo calcular ninguna tendencia.")
         return False
 
-    # CSV resumen
-    df_res = pd.DataFrame(resultados)
+    # CSV resumen: principal sin PV Glasses (pendiente no comparable); _completo con todos
+    resultados_sin_pg = [r for r in resultados if r["instrumento"] != "PV Glasses"]
+    df_res = pd.DataFrame(resultados_sin_pg)
     path_csv = os.path.join(out_dir, "tendencias_resumen.csv")
     df_res.to_csv(path_csv, index=False)
-    logger.info("Resumen: %s", path_csv)
+    logger.info("Resumen (sin PV Glasses): %s", path_csv)
+    df_res_completo = pd.DataFrame(resultados)
+    path_csv_completo = os.path.join(out_dir, "tendencias_resumen_completo.csv")
+    df_res_completo.to_csv(path_csv_completo, index=False)
+    logger.info("Resumen completo (con PV Glasses): %s", path_csv_completo)
 
-    # Gráfico: series + rectas de tendencia
+    # Gráfico: series + rectas de tendencia (sin PV Glasses para comparabilidad de pendientes)
     if MATPLOTLIB_AVAILABLE:
         fig, ax = plt.subplots(figsize=(14, 6))
         colors = ["#D32F2F", "#FF6F00", "#388E3C", "#1976D2", "#7B1FA2", "#C2185B", "#0097A7"]
-        for i, inst in enumerate(instrumentos):
+        insts_grafico = [r["instrumento"] for r in resultados_sin_pg]
+        for i, inst in enumerate(insts_grafico):
             if inst not in tendencias:
                 continue
             fechas, y_obs, y_pred = tendencias[inst]
@@ -146,7 +152,7 @@ def run(norm_csv_path, out_dir):
         ax.axhline(100, color="gray", linestyle=":", linewidth=0.8, alpha=0.6)
         ax.set_xlabel("Fecha", fontsize=12)
         ax.set_ylabel("SR (%)", fontsize=12)
-        ax.set_title("SR semanal Q25 normalizado y tendencia lineal por metodología", fontsize=13, pad=10)
+        ax.set_title("SR semanal Q25 y tendencia lineal por metodología (IV600 Pmax/Isc valor absoluto)", fontsize=13, pad=10)
         ax.xaxis.set_major_formatter(FuncFormatter(_fmt_month_es))
         ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
         ax.legend(loc="lower left", fontsize=9, ncol=2)
@@ -158,15 +164,15 @@ def run(norm_csv_path, out_dir):
         plt.close()
         logger.info("Gráfico: %s/tendencias_grafico.png", out_dir)
 
-        # Barras de pendiente
+        # Barras de pendiente (sin PV Glasses)
         fig2, ax2 = plt.subplots(figsize=(10, 5))
-        insts = [r["instrumento"] for r in resultados]
-        pendientes = [r["pendiente_por_semana"] for r in resultados]
+        insts = [r["instrumento"] for r in resultados_sin_pg]
+        pendientes = [r["pendiente_por_semana"] for r in resultados_sin_pg]
         colores = [colors[i % len(colors)] for i in range(len(insts))]
         bars = ax2.bar(insts, pendientes, color=colores, alpha=0.8, edgecolor="gray")
         ax2.axhline(0, color="black", linewidth=0.8)
         ax2.set_ylabel("Pendiente (% por semana)", fontsize=12)
-        ax2.set_title("Tendencia lineal del SR semanal normalizado por metodología", fontsize=13, pad=10)
+        ax2.set_title("Tendencia lineal del SR semanal por metodología", fontsize=13, pad=10)
         plt.xticks(rotation=25, ha="right")
         ax2.grid(True, axis="y", alpha=0.3)
         plt.tight_layout()
@@ -176,7 +182,7 @@ def run(norm_csv_path, out_dir):
 
     # Reporte Markdown
     lineas = [
-        "# Análisis de tendencias — SR semanal Q25 normalizado",
+        "# Análisis de tendencias — SR semanal Q25 (IV600 Pmax/Isc valor absoluto)",
         "",
         "Regresión lineal **SR = a + b × (semana)** por metodología. La pendiente **b** es la tasa de cambio en % por semana.",
         "",
@@ -185,7 +191,7 @@ def run(norm_csv_path, out_dir):
         "| Instrumento | Pendiente (%/semana) | Pendiente (%/mes) | R² | p-value | n_semanas |",
         "|-------------|---------------------|-------------------|-----|---------|-----------|",
     ]
-    for r in resultados:
+    for r in resultados_sin_pg:
         lineas.append("| {} | {:+.4f} | {:+.4f} | {:.4f} | {:.4f} | {} |".format(
             r["instrumento"], r["pendiente_por_semana"], r["pendiente_por_mes"],
             r["R2"], r["p_value"], r["n_semanas"]))

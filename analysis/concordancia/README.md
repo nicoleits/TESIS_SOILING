@@ -1,6 +1,6 @@
 # Concordancia intermetodológica
 
-Matrices y gráficos de concordancia entre todas las metodologías de SR. Datos: SR semanal Q25 normalizado (t₀=100%); PVStand e IV600 usan series **corregidas por temperatura**.
+Matrices y gráficos de concordancia entre todas las metodologías de SR. Datos: SR semanal Q25 (normalizado t₀=100% excepto IV600 Pmax/Isc en valor absoluto); PVStand e IV600 corregidos por T.
 
 ## Archivos
 

@@ -1,7 +1,7 @@
 """
 Análisis de correlación cruzada entre instrumentos de soiling.
 
-Usa el SR semanal Q25 normalizado (sr_semanal_norm.csv) para calcular la
+Usa el SR semanal Q25 (sr_semanal_norm.csv; IV600 Pmax/Isc sin normalizar, resto t₀=100%) para calcular la
 correlación de Pearson entre todos los pares de instrumentos. Solo se usan
 las semanas donde ambos instrumentos tienen dato simultáneamente (pairwise
 complete observations).
@@ -44,6 +44,7 @@ try:
     import matplotlib.pyplot as plt
     from matplotlib.colors import LinearSegmentedColormap
     from matplotlib import patheffects
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -52,11 +53,17 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos=None):
+        return f"{x:.2f}".replace(".", ",")
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
     LinearSegmentedColormap = None
     patheffects = None
+    FuncFormatter = None
+    _formatter_coma = None
 
 ALPHA = 0.05
 
@@ -148,15 +155,17 @@ def heatmap_correlacion(mat_r, mat_n, out_path):
                 txt = "—"
                 color = "gray"
             elif i == j:
-                txt = "1.000"
+                txt = "1,000"
                 color = "black"
             else:
-                txt = f"{r_val:.3f}\n(n={int(n_val)})"
+                txt = f"{r_val:.3f}\n(n={int(n_val)})".replace(".", ",")
                 color = "black" if abs(r_val) < 0.85 else "white"
             ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
-    plt.colorbar(im, ax=ax, label="r de Pearson")
-    ax.set_title("Correlación de Pearson entre instrumentos\n(SR semanal Q25 normalizado)",
+    cbar = plt.colorbar(im, ax=ax, label="r de Pearson")
+    if _formatter_coma is not None:
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.2f}".replace(".", ",")))
+    ax.set_title("Correlación de Pearson entre instrumentos\n(SR semanal Q25; IV600 Pmax/Isc valor absoluto)",
                  fontsize=11, fontweight="bold")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
@@ -213,15 +222,17 @@ def heatmap_pvalores(mat_p, out_path):
             elif np.isfinite(val) and val <= 0:
                 txt, color = "p≈0", "white"
             elif val < 0.001:
-                txt, color = "p<0.001", "white"
+                txt, color = "p<0,001", "white"
             else:
-                txt = "p=%.3f" % val
+                txt = ("p=" + f"{val:.3f}".replace(".", ","))
                 rgba = cmap(norm(np.clip(float(val), 0, 0.1)))
                 lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 color = "black" if lum > 0.55 else "white"
             ax.text(j, i, txt, ha="center", va="center", fontsize=9.5, color=color)
 
-    plt.colorbar(im, ax=ax, label="p-valor")
+    cbar = plt.colorbar(im, ax=ax, label="p-valor")
+    if _formatter_coma is not None:
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, p: f"{x:.3f}".replace(".", ",")))
     ax.set_title("P-valores de correlación de Pearson entre instrumentos",
                  fontsize=11, fontweight="bold")
     plt.tight_layout()
@@ -255,16 +266,20 @@ def scatter_matrix(df, out_path):
                     xr = np.linspace(sub[inst_x].min(), sub[inst_x].max(), 50)
                     ax.plot(xr, m * xr + b, "k-", linewidth=0.8, alpha=0.7)
                     r, p = stats.pearsonr(sub[inst_x], sub[inst_y])
-                    ax.text(0.05, 0.92, f"r={r:.2f}", transform=ax.transAxes,
+                    r_txt = "r=" + f"{r:.2f}".replace(".", ",")
+                    ax.text(0.05, 0.92, r_txt, transform=ax.transAxes,
                             fontsize=6.5, va="top",
                             color="green" if abs(r) >= 0.7 else "red")
+            if _formatter_coma is not None:
+                ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+                ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
             ax.tick_params(labelsize=6)
             if j == 0:
                 ax.set_ylabel(inst_y, fontsize=7)
             if i == n - 1:
                 ax.set_xlabel(inst_x, fontsize=7)
 
-    fig.suptitle("Matriz de dispersión — SR semanal Q25 normalizado",
+    fig.suptitle("Matriz de dispersión — SR semanal Q25 (IV600 Pmax/Isc valor absoluto)",
                  fontsize=11, fontweight="bold", y=1.01)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150, bbox_inches="tight")
@@ -294,7 +309,7 @@ def generar_reporte(df_pares, mat_r, out_path):
     lines = [
         "# Análisis de Correlación Cruzada entre Instrumentos",
         "",
-        "**Variable:** SR semanal Q25 normalizado (t₀ = 100%)  ",
+        "**Variable:** SR semanal Q25 (t₀=100% excepto IV600 Pmax/Isc en valor absoluto)  ",
         f"**Método:** Correlación de Pearson pairwise (solo semanas con dato en ambos instrumentos)  ",
         f"**Nivel de significancia:** α = {ALPHA}",
         "",
@@ -358,7 +373,7 @@ def generar_reporte(df_pares, mat_r, out_path):
         "(sesgo). Una correlación baja indica que los instrumentos responden a fenómenos",
         "diferentes o que uno de ellos introduce ruido sistemático.",
         "",
-        "> **Nota:** La correlación se calcula sobre el SR normalizado semanal Q25.",
+        "> **Nota:** La correlación se calcula sobre el SR semanal Q25 (IV600 Pmax/Isc sin normalizar).",
         "> Los instrumentos con períodos de medición cortos (IV600: 30 semanas) tienen",
         "> menos semanas en común con el resto, lo que puede afectar la estimación de r.",
     ]

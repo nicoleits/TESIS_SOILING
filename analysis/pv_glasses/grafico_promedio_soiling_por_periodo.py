@@ -11,6 +11,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -19,8 +20,13 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos):
+        return f"{x:.3f}".replace(".", ",")
 except ImportError:
     plt = None
+    FuncFormatter = None
+    _formatter_coma = None
 
 # Orden y etiquetas en inglés para el eje X (como en el gráfico de referencia)
 PERIODO_ORDEN = [
@@ -94,6 +100,8 @@ def grafico_promedio_soiling_por_periodo(
     ax.set_title("General Average of Soiling by Period\n(A+B+C)/3", fontsize=12)
     ax.set_ylim(0, max(valores) * 1.15 if valores.size else 14)
     ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True))
+    if _formatter_coma is not None:
+        ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
     ax.grid(axis="y", color="gray", linestyle="-", linewidth=0.5, alpha=0.7)
     ax.set_axisbelow(True)
 
@@ -101,7 +109,7 @@ def grafico_promedio_soiling_por_periodo(
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             bar.get_height() + 0.15,
-            f"{val:.2f}",
+            f"{val:.2f}".replace(".", ","),
             ha="center",
             va="bottom",
             fontsize=10,

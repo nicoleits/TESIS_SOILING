@@ -14,7 +14,7 @@ Salidas en analysis/semanal/:
   - sr_semanal_q25_boxplot.png        : boxplot dispersión por instrumento
   - sr_semanal_q25_norm.png           : series normalizadas (t₀=100%)
 
-Metodologías: Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, IV600, IV600 corr.
+Metodologías: Soiling Kit, DustIQ, RefCells, PVStand, PVStand corr, PVStand Isc, IV600, IV600 corr, IV600 Isc.
 RefCells usa REFCELLS_FECHA_MAX como fecha máxima.
 
 Uso (desde si_test con PYTHONPATH=TESIS_SOILING):
@@ -67,6 +67,9 @@ except ImportError:
     PERIODO_ANALISIS_FIN = "2025-08-04"
     REFCELLS_FECHA_MAX = "2025-05-20"
 
+# IV600 (Pmax e Isc): no se normalizan a 100%; se mantienen en SR absoluto (%).
+NO_NORMALIZAR_IV600 = {"IV600", "IV600 corr", "IV600 Isc"}
+
 # ---------------------------------------------------------------------------
 # Configuración: (nombre_display, ruta_csv relativa a sr_dir, columna_SR, fecha_max_override).
 # fecha_max_override=None → usar PERIODO_ANALISIS_FIN.
@@ -78,8 +81,10 @@ def _build_config(sr_dir):
         ("RefCells",      os.path.join(sr_dir, "refcells_sr.csv"),      "SR",                REFCELLS_FECHA_MAX),
         ("PVStand",       os.path.join(sr_dir, "pvstand_sr.csv"),       "SR_Pmax",           None),
         ("PVStand corr",  os.path.join(sr_dir, "pvstand_sr_corr.csv"),  "SR_Pmax_corr",      None),
+        ("PVStand Isc",   os.path.join(sr_dir, "pvstand_sr_corr.csv"),  "SR_Isc_corr",       None),
         ("IV600",         os.path.join(sr_dir, "iv600_sr.csv"),         "SR_Pmax_434",       None),
         ("IV600 corr",    os.path.join(sr_dir, "iv600_sr_corr.csv"),     "SR_Pmax_corr_434",  None),
+        ("IV600 Isc",     os.path.join(sr_dir, "iv600_sr_corr.csv"),     "SR_Isc_corr_434",   None),
     ]
 
 
@@ -243,8 +248,8 @@ def _grafico_norm_superpuesto(datos_norm, out_path):
                 linewidth=1.2, markersize=3, label=nombre, alpha=0.85)
     ax.axhline(100, color="gray", linestyle="--", linewidth=0.9, alpha=0.6)
     ax.set_xlabel("Semana (inicio lunes)", fontsize=12)
-    ax.set_ylabel("SR Q25 normalizado (%)", fontsize=12)
-    ax.set_title("SR Semanal Q25 normalizado (t₀ = 100%) — todas las metodologías", fontsize=13, pad=10)
+    ax.set_ylabel("SR (%)", fontsize=12)
+    ax.set_title("SR Semanal Q25 (t₀=100% norm.; IV600 Pmax/Isc valor absoluto)", fontsize=13, pad=10)
     ax.xaxis.set_major_formatter(FuncFormatter(_fmt_month_es))
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     ax.legend(loc="lower left", fontsize=10, ncol=2)
@@ -275,9 +280,14 @@ def run(sr_dir, out_dir):
             continue
         series_semanales[nombre] = semanal
         q25, std, _ = resample_semanal_q25_y_std(serie_diaria)
-        q25_n, std_n = normalizar_desde_inicio(q25, std)
-        if q25_n is not None:
+        if nombre in NO_NORMALIZAR_IV600:
+            q25_n = q25.copy()
+            std_n = std.copy() if std is not None else pd.Series(0.0, index=q25.index)
             datos_norm[nombre] = (q25_n, std_n)
+        else:
+            q25_n, std_n = normalizar_desde_inicio(q25, std)
+            if q25_n is not None:
+                datos_norm[nombre] = (q25_n, std_n)
         disp = dispersion_entre_semanas(semanal, nombre)
         if disp:
             disp_rows.append(disp)

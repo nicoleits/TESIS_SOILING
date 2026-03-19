@@ -1,8 +1,7 @@
 """
 Concordancia intermetodológica: matrices y gráficos entre todas las metodologías de SR.
 
-Usa SR semanal Q25 normalizado (analysis/stats/sr_semanal_norm.csv). PVStand e IV600
-son las series ya corregidas por temperatura (SR_Pmax_corr, SR_Isc_corr, etc.).
+Usa SR semanal Q25 (analysis/stats/sr_semanal_norm.csv): normalizado t₀=100% excepto IV600 Pmax/Isc (valor absoluto). PVStand e IV600 son series corregidas por temperatura.
 
 Salidas en analysis/concordancia/:
   matriz_correlacion.csv       : correlación de Pearson entre pares
@@ -34,6 +33,7 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
     try:
         locale.setlocale(locale.LC_NUMERIC, "es_ES.UTF-8")
     except locale.Error:
@@ -42,9 +42,15 @@ try:
         except locale.Error:
             pass
     plt.rcParams["axes.formatter.use_locale"] = True
+
+    def _formatter_coma(x, pos=None):
+        return f"{x:.2f}".replace(".", ",")
+
     MATPLOTLIB_AVAILABLE = True
 except ImportError:
     MATPLOTLIB_AVAILABLE = False
+    FuncFormatter = None
+    _formatter_coma = None
 
 ALPHA = 0.05
 
@@ -168,12 +174,14 @@ def grafico_heatmap_concordancia(mat_r, mat_n, out_path):
                 txt = "1"
                 color = "black"
             else:
-                txt = f"{r_val:.2f}\n(n={int(n_val)})"
+                txt = f"{r_val:.2f}\n(n={int(n_val)})".replace(".", ",")
                 color = "white" if (np.isfinite(r_val) and r_val >= 0.92) else "black"
             ax.text(j, i, txt, ha="center", va="center", fontsize=7, color=color)
 
-    plt.colorbar(im, ax=ax, label="r (Pearson)")
-    ax.set_title("Concordancia intermetodológica — Correlación de Pearson\nSR semanal Q25 normalizado (PVStand/IV600 corregidos por T)")
+    cbar = plt.colorbar(im, ax=ax, label="r (Pearson)")
+    if _formatter_coma is not None:
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+    ax.set_title("Concordancia intermetodológica — Correlación de Pearson\nSR semanal Q25 (IV600 Pmax/Isc valor absoluto; resto norm. t₀=100%)")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -202,14 +210,16 @@ def grafico_heatmap_ccc(mat_ccc, mat_n, out_path):
             elif i == j:
                 txt, color = "1", "black"
             else:
-                txt = f"{ccc_val:.2f}\n(n={int(n_val)})"
+                txt = f"{ccc_val:.2f}\n(n={int(n_val)})".replace(".", ",")
                 rgba = cmap(norm_color(np.clip(float(ccc_val), 0, 1)))
                 lum = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2]
                 color = "black" if lum > 0.55 else "white"
             ax.text(j, i, txt, ha="center", va="center", fontsize=7, color=color)
 
-    plt.colorbar(im, ax=ax, label="CCC de Lin")
-    ax.set_title("Concordancia intermetodológica — CCC de Lin\nSR semanal Q25 normalizado (PVStand/IV600 corregidos por T)")
+    cbar = plt.colorbar(im, ax=ax, label="CCC de Lin")
+    if _formatter_coma is not None:
+        cbar.ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+    ax.set_title("Concordancia intermetodológica — CCC de Lin\nSR semanal Q25 (IV600 Pmax/Isc valor absoluto; resto norm. t₀=100%)")
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -241,12 +251,16 @@ def grafico_scatter_matrix(df, out_path, max_metodos=8):
                 ax.set_ylabel(inst_y, fontsize=8)
             ax.tick_params(labelsize=6)
             ax.set_aspect("equal", adjustable="box")
+            if _formatter_coma is not None:
+                ax.xaxis.set_major_formatter(FuncFormatter(_formatter_coma))
+                ax.yaxis.set_major_formatter(FuncFormatter(_formatter_coma))
             r, _ = stats.pearsonr(sub[inst_x].values, sub[inst_y].values)
             arr = np.atleast_1d(np.asarray(r))
             r_scalar = float(arr[0]) if len(arr) > 0 else np.nan
-            ax.text(0.05, 0.95, "r=%.2f" % r_scalar if np.isfinite(r_scalar) else "r=—", transform=ax.transAxes, fontsize=7, va="top")
+            r_txt = ("r=" + f"{r_scalar:.2f}".replace(".", ",")) if np.isfinite(r_scalar) else "r=—"
+            ax.text(0.05, 0.95, r_txt, transform=ax.transAxes, fontsize=7, va="top")
 
-    fig.suptitle("Concordancia intermetodológica — Dispersión por pares (SR normalizado)", fontsize=11)
+    fig.suptitle("Concordancia intermetodológica — Dispersión por pares (IV600 Pmax/Isc valor absoluto)", fontsize=11)
     plt.tight_layout()
     plt.savefig(out_path, dpi=150)
     plt.close()
@@ -287,7 +301,7 @@ def run(out_dir=None, norm_csv=None):
     with open(readme, "w", encoding="utf-8") as f:
         f.write("# Concordancia intermetodológica\n\n")
         f.write("Matrices y gráficos de concordancia entre todas las metodologías de SR. ")
-        f.write("Datos: SR semanal Q25 normalizado (t₀=100%); PVStand e IV600 usan series **corregidas por temperatura**.\n\n")
+        f.write("Datos: SR semanal Q25 (normalizado t₀=100% excepto IV600 Pmax/Isc en valor absoluto); PVStand e IV600 corregidos por T.\n\n")
         f.write("## Archivos\n\n")
         f.write("- **matriz_correlacion.csv**: Correlación de Pearson entre pares de metodologías.\n")
         f.write("- **matriz_correlacion_spearman.csv**: Correlación de Spearman.\n")

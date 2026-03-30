@@ -1,0 +1,7 @@
+# Dependencias del proyecto (pip install -r requirements.pip)
+pandas
+numpy
+clickhouse-connect
+matplotlib
+plotly
+pvlib

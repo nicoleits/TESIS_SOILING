@@ -1,11 +1,32 @@
-.venv/
-__pycache__/
-TESIS_SOILING/
+# Copia de seguridad del antiguo repositorio anidado (no subir)
+_git_backups/
 
+# Entornos Python
+.venv/
+venv/
+env/
+.env/
+
+# Cachés y artefactos de build
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Datos, figuras y documentos generados (pesados o no código)
 *.csv
 *.png
-*.txt
+*.jpg
+*.jpeg
+*.gif
+*.webp
 *.pdf
+*.txt
 *.html
 *.json
 *.yaml
@@ -15,3 +36,13 @@ TESIS_SOILING/
 *.jsonl.gz.part
 *.jsonl.gz.part.1
 *.jsonl.gz.part.2
+*.parquet
+*.xlsx
+*.xls
+*.feather
+*.h5
+*.hdf5
+*.zip
+*.tar
+*.gz
+*.7z

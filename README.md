@@ -1,5 +1,7 @@
 # si_test
 
+Este directorio es **un único repositorio Git**: el código de `TESIS_SOILING/` y el resto del proyecto se versionan juntos. En `.gitignore` se excluyen entornos virtuales (`.venv/`, etc.), datos tabulares e imágenes (`*.csv`, `*.png`, …), y otros artefactos pesados listados en ese fichero. El historial del antiguo repo anidado de `TESIS_SOILING`, si existía, queda respaldado bajo `_git_backups/` (no se sube a Git).
+
 ## Entorno Python
 
 Los archivos `*.txt` no se versionan en este repositorio (incluido un hipotético `requirements.txt`). Para instalar dependencias usa el fichero **`requirements.pip`**, que sí está en Git.

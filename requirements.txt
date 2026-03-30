@@ -1,7 +1,0 @@
-# Dependencias para download_data.py
-pandas
-numpy
-clickhouse-connect
-matplotlib
-plotly
-pvlib

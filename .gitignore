@@ -4,6 +4,7 @@ TESIS_SOILING/
 
 *.csv
 *.png
+*.txt
 *.pdf
 *.html
 *.json
